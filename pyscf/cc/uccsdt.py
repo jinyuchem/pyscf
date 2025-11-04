@@ -2821,12 +2821,12 @@ def _make_df_eris_incore_uccsdt(mycc, mo_coeff=None):
     for eri1 in mycc._scf.with_df.loop():
         eri1 = lib.unpack_tril(eri1).reshape(-1, nao, nao)
         # (L|aa)
-        Lpq_tmp = einsum_('Lab,ap,bq->Lpq', eri1, moa, moa)
+        Lpq_tmp = einsum('Lab,ap,bq->Lpq', eri1, moa, moa)
         p0, p1 = p1, p1 + Lpq_tmp.shape[0]
         Lpq[p0:p1, :, :] = Lpq_tmp[:, :, :]
         Lpq_tmp = None
         # (L|bb)
-        Lpq_tmp = einsum_('Lab,ap,bq->Lpq', eri1, mob, mob)
+        Lpq_tmp = einsum('Lab,ap,bq->Lpq', eri1, mob, mob)
         LPQ[p0:p1, :, :] = Lpq_tmp[:, :, :]
         Lpq_tmp = None
     Lpq = Lpq.reshape(naux, nmoa * nmoa)
