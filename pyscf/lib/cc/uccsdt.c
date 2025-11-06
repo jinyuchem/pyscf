@@ -21,7 +21,6 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <omp.h>
 
 // Signs for 6-fold permutations (matches your Python code)
 const double sign6[6] = {1.0, -1.0, -1.0, 1.0, 1.0, -1.0};

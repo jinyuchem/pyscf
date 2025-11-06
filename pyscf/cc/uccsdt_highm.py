@@ -28,13 +28,12 @@ from pyscf.mp.mp2 import get_e_hf
 from pyscf.mp.ump2 import get_nocc, get_nmo, get_frozen_mask
 from pyscf.cc import uccsdt
 from pyscf.cc.rccsdt import einsum_, run_diis, _finalize
-from pyscf.cc.uccsdt import (_make_eris_incore_uccsdt, _make_df_eris_incore_uccsdt, build_t2_indices_uhf,
-        init_amps, energy, update_t1_fock_eris_uhf, intermediates_t1t2_uhf, compute_r1r2_uhf, antisymmetrize_r2_uhf,
-        r1r2_divide_e_uhf, intermediates_t3_uhf, amplitudes_to_vector_uhf, vector_to_amplitudes_uhf, kernel,
-        ao2mo_uccsdt, restore_from_diis_)
+from pyscf.cc.uccsdt import (update_t1_fock_eris_uhf_, intermediates_t1t2_uhf_, compute_r1r2_uhf,
+                                antisymmetrize_r2_uhf_, r1r2_divide_e_uhf_, intermediates_t3_uhf_)
+from pyscf import __config__
 
 
-def r1r2_add_t3_uhf(mycc, t3, r1, r2):
+def r1r2_add_t3_uhf_(mycc, t3, r1, r2):
     '''add the contributions from t3 amplitudes to r1r2'''
     nocca, noccb = mycc.nocca, mycc.noccb
     t1_focka, t1_fockb = mycc.t1_focka, mycc.t1_fockb
@@ -43,76 +42,42 @@ def r1r2_add_t3_uhf(mycc, t3, r1, r2):
 
     (r1a, r1b), (r2aa, r2ab, r2bb) = r1, r2
     # r1a
-    einsum_('mnef,imnaef->ia', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t3aaa, out=r1a, alpha=0.25, beta=1.0)
-    einsum_('nmfe,inafme->ia', t1_erisab[:nocca, :noccb, nocca:, noccb:], t3aab, out=r1a, alpha=1.0, beta=1.0)
-    einsum_('mnef,mnefia->ia', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t3bba, out=r1a, alpha=0.25, beta=1.0)
+    einsum_(mycc, 'mnef,imnaef->ia', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t3aaa, out=r1a, alpha=0.25, beta=1.0)
+    einsum_(mycc, 'nmfe,inafme->ia', t1_erisab[:nocca, :noccb, nocca:, noccb:], t3aab, out=r1a, alpha=1.0, beta=1.0)
+    einsum_(mycc, 'mnef,mnefia->ia', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t3bba, out=r1a, alpha=0.25, beta=1.0)
     # r1b
-    einsum_('mnef,imnaef->ia', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t3bbb, out=r1b, alpha=0.25, beta=1.0)
-    einsum_('mnef,inafme->ia', t1_erisab[:nocca, :noccb, nocca:, noccb:], t3bba, out=r1b, alpha=1.0, beta=1.0)
-    einsum_('mnef,mnefia->ia', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t3aab, out=r1b, alpha=0.25, beta=1.0)
+    einsum_(mycc, 'mnef,imnaef->ia', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t3bbb, out=r1b, alpha=0.25, beta=1.0)
+    einsum_(mycc, 'mnef,inafme->ia', t1_erisab[:nocca, :noccb, nocca:, noccb:], t3bba, out=r1b, alpha=1.0, beta=1.0)
+    einsum_(mycc, 'mnef,mnefia->ia', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t3aab, out=r1b, alpha=0.25, beta=1.0)
     # r2aa
-    einsum_("me,ijmabe->ijab", t1_focka[:nocca, nocca:], t3aaa, out=r2aa, alpha=0.25, beta=1.0)
-    einsum_("me,ijabme->ijab", t1_fockb[:noccb, noccb:], t3aab, out=r2aa, alpha=0.25, beta=1.0)
-    einsum_("bmef,ijmaef->ijab", t1_erisaa[nocca:, :nocca, nocca:, nocca:], t3aaa, out=r2aa, alpha=0.25, beta=1.0)
-    einsum_("bmef,ijaemf->ijab", t1_erisab[nocca:, :noccb, nocca:, noccb:], t3aab, out=r2aa, alpha=0.5, beta=1.0)
-    einsum_("mnje,imnabe->ijab", t1_erisaa[:nocca, :nocca, :nocca, nocca:], t3aaa, out=r2aa, alpha=-0.25, beta=1.0)
-    einsum_("mnje,imabne->ijab", t1_erisab[:nocca, :noccb, :nocca, noccb:], t3aab, out=r2aa, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "me,ijmabe->ijab", t1_focka[:nocca, nocca:], t3aaa, out=r2aa, alpha=0.25, beta=1.0)
+    einsum_(mycc, "me,ijabme->ijab", t1_fockb[:noccb, noccb:], t3aab, out=r2aa, alpha=0.25, beta=1.0)
+    einsum_(mycc, "bmef,ijmaef->ijab", t1_erisaa[nocca:, :nocca, nocca:, nocca:], t3aaa, out=r2aa, alpha=0.25, beta=1.0)
+    einsum_(mycc, "bmef,ijaemf->ijab", t1_erisab[nocca:, :noccb, nocca:, noccb:], t3aab, out=r2aa, alpha=0.5, beta=1.0)
+    einsum_(mycc, "mnje,imnabe->ijab", t1_erisaa[:nocca, :nocca, :nocca, nocca:], t3aaa,
+            out=r2aa, alpha=-0.25, beta=1.0)
+    einsum_(mycc, "mnje,imabne->ijab", t1_erisab[:nocca, :noccb, :nocca, noccb:], t3aab, out=r2aa, alpha=-0.5, beta=1.0)
     # r2ab
-    einsum_("me,imaejb->iajb", t1_focka[:nocca, nocca:], t3aab, out=r2ab, alpha=1.0, beta=1.0)
-    einsum_("me,jmbeia->iajb", t1_fockb[:noccb, noccb:], t3bba, out=r2ab, alpha=1.0, beta=1.0)
-    einsum_("mbfe,imafje->iajb", t1_erisab[:nocca, noccb:, nocca:, noccb:], t3aab, out=r2ab, alpha=1.0, beta=1.0)
-    einsum_("bmef,jmefia->iajb", t1_erisbb[noccb:, :noccb, noccb:, noccb:], t3bba, out=r2ab, alpha=0.5, beta=1.0)
-    einsum_("amef,imefjb->iajb", t1_erisaa[nocca:, :nocca, nocca:, nocca:], t3aab, out=r2ab, alpha=0.5, beta=1.0)
-    einsum_("amef,jmbfie->iajb", t1_erisab[nocca:, :noccb, nocca:, noccb:], t3bba, out=r2ab, alpha=1.0, beta=1.0)
-    einsum_("nmej,inaemb->iajb", t1_erisab[:nocca, :noccb, nocca:, :noccb], t3aab, out=r2ab, alpha=-1.0, beta=1.0)
-    einsum_("mnje,mnbeia->iajb", t1_erisbb[:noccb, :noccb, :noccb, noccb:], t3bba, out=r2ab, alpha=-0.5, beta=1.0)
-    einsum_("mnie,mnaejb->iajb", t1_erisaa[:nocca, :nocca, :nocca, nocca:], t3aab, out=r2ab, alpha=-0.5, beta=1.0)
-    einsum_("mnie,jnbema->iajb", t1_erisab[:nocca, :noccb, :nocca, noccb:], t3bba, out=r2ab, alpha=-1.0, beta=1.0)
+    einsum_(mycc, "me,imaejb->iajb", t1_focka[:nocca, nocca:], t3aab, out=r2ab, alpha=1.0, beta=1.0)
+    einsum_(mycc, "me,jmbeia->iajb", t1_fockb[:noccb, noccb:], t3bba, out=r2ab, alpha=1.0, beta=1.0)
+    einsum_(mycc, "mbfe,imafje->iajb", t1_erisab[:nocca, noccb:, nocca:, noccb:], t3aab, out=r2ab, alpha=1.0, beta=1.0)
+    einsum_(mycc, "bmef,jmefia->iajb", t1_erisbb[noccb:, :noccb, noccb:, noccb:], t3bba, out=r2ab, alpha=0.5, beta=1.0)
+    einsum_(mycc, "amef,imefjb->iajb", t1_erisaa[nocca:, :nocca, nocca:, nocca:], t3aab, out=r2ab, alpha=0.5, beta=1.0)
+    einsum_(mycc, "amef,jmbfie->iajb", t1_erisab[nocca:, :noccb, nocca:, noccb:], t3bba, out=r2ab, alpha=1.0, beta=1.0)
+    einsum_(mycc, "nmej,inaemb->iajb", t1_erisab[:nocca, :noccb, nocca:, :noccb], t3aab, out=r2ab, alpha=-1.0, beta=1.0)
+    einsum_(mycc, "mnje,mnbeia->iajb", t1_erisbb[:noccb, :noccb, :noccb, noccb:], t3bba, out=r2ab, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "mnie,mnaejb->iajb", t1_erisaa[:nocca, :nocca, :nocca, nocca:], t3aab, out=r2ab, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "mnie,jnbema->iajb", t1_erisab[:nocca, :noccb, :nocca, noccb:], t3bba, out=r2ab, alpha=-1.0, beta=1.0)
     # r2bb
-    einsum_("me,ijmabe->ijab", t1_fockb[:noccb, noccb:], t3bbb, out=r2bb, alpha=0.25, beta=1.0)
-    einsum_("me,ijabme->ijab", t1_focka[:nocca, nocca:], t3bba, out=r2bb, alpha=0.25, beta=1.0)
-    einsum_("bmef,ijmaef->ijab", t1_erisbb[noccb:, :noccb, noccb:, noccb:], t3bbb, out=r2bb, alpha=0.25, beta=1.0)
-    einsum_("mbfe,ijaemf->ijab", t1_erisab[:nocca, noccb:, nocca:, noccb:], t3bba, out=r2bb, alpha=0.5, beta=1.0)
-    einsum_("mnje,imnabe->ijab", t1_erisbb[:noccb, :noccb, :noccb, noccb:], t3bbb, out=r2bb, alpha=-0.25, beta=1.0)
-    einsum_("nmej,imabne->ijab", t1_erisab[:nocca, :noccb, nocca:, :noccb], t3bba, out=r2bb, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "me,ijmabe->ijab", t1_fockb[:noccb, noccb:], t3bbb, out=r2bb, alpha=0.25, beta=1.0)
+    einsum_(mycc, "me,ijabme->ijab", t1_focka[:nocca, nocca:], t3bba, out=r2bb, alpha=0.25, beta=1.0)
+    einsum_(mycc, "bmef,ijmaef->ijab", t1_erisbb[noccb:, :noccb, noccb:, noccb:], t3bbb, out=r2bb, alpha=0.25, beta=1.0)
+    einsum_(mycc, "mbfe,ijaemf->ijab", t1_erisab[:nocca, noccb:, nocca:, noccb:], t3bba, out=r2bb, alpha=0.5, beta=1.0)
+    einsum_(mycc, "mnje,imnabe->ijab", t1_erisbb[:noccb, :noccb, :noccb, noccb:], t3bbb,
+            out=r2bb, alpha=-0.25, beta=1.0)
+    einsum_(mycc, "nmej,imabne->ijab", t1_erisab[:nocca, :noccb, nocca:, :noccb], t3bba, out=r2bb, alpha=-0.5, beta=1.0)
 
-    return (r1a, r1b), (r2aa, r2ab, r2bb)
-
-def update_amps_t1t2_with_t3_uhf(mycc, tamps):
-    time0 = logger.process_clock(), logger.perf_counter()
-    log = logger.Logger(mycc.stdout, mycc.verbose)
-
-    t1, t2, t3 = tamps
-    t1a, t1b = t1
-    t2aa, t2ab, t2bb = t2
-
-    update_t1_fock_eris_uhf(mycc, t1)
-    time1 = log.timer_debug1('t1t2: update fock & eris', *time0)
-
-    intermediates_t1t2_uhf(mycc, t2)
-    time1 = log.timer_debug1('t1t2: update intermediates', *time0)
-
-    r1, r2 = compute_r1r2_uhf(mycc, t2)
-    r1, r2 = r1r2_add_t3_uhf(mycc, t3, r1, r2)
-    # antisymmetrize R2
-    r2 = antisymmetrize_r2_uhf(r2)
-    # divide by eijkabc
-    r1, r2 = r1r2_divide_e_uhf(r1, r2, mycc.mo_energy, mycc.level_shift)
-    (r1a, r1b), (r2aa, r2ab, r2bb) = r1, r2
-
-    mycc.r_norm[0] = np.sqrt(np.linalg.norm(r1a)**2 + np.linalg.norm(r1b)**2)
-    mycc.r_norm[1] = np.sqrt(np.linalg.norm(r2aa)**2 + np.linalg.norm(r2ab)**2 + np.linalg.norm(r2bb)**2)
-
-    t1a += r1a
-    t1b += r1b
-    t2aa += r2aa
-    t2ab += r2ab
-    t2bb += r2bb
-    time1 = log.timer_debug1('t1t2: update t1 & t2', *time1)
-    time0 = log.timer_debug1('t1t2 total', *time0)
-    return (t1a, t1b), (t2aa, t2ab, t2bb)
-
-def intermediates_t3_add_t3_uhf(mycc, t3):
+def intermediates_t3_add_t3_uhf_(mycc, t3):
     '''add the contributions of t3 to t3 intermediates'''
     nocca, noccb = mycc.nocca, mycc.noccb
     t1_erisaa, t1_erisab, t1_erisbb = mycc.t1_erisaa, mycc.t1_erisab, mycc.t1_erisbb
@@ -121,22 +86,22 @@ def intermediates_t3_add_t3_uhf(mycc, t3):
     oaoavava = (slice(None, nocca), slice(None, nocca), slice(nocca, None), slice(nocca, None))
     oaobvavb = (slice(None, nocca), slice(None, noccb), slice(nocca, None), slice(noccb, None))
     obobvbvb = (slice(None, noccb), slice(None, noccb), slice(noccb, None), slice(noccb, None))
-    einsum_('lmde,lmkbec->bcdk', t1_erisaa[oaoavava], t3aaa, out=mycc.W_vvvo, alpha=-0.5, beta=1.0)
-    einsum_('lmde,lkbcme->bcdk', t1_erisab[oaobvavb], t3aab, out=mycc.W_vvvo, alpha=-1.0, beta=1.0)
-    einsum_('lmde,jmkdec->lcjk', t1_erisaa[oaoavava], t3aaa, out=mycc.W_ovoo, alpha=0.5, beta=1.0)
-    einsum_('lmde,jkdcme->lcjk', t1_erisab[oaobvavb], t3aab, out=mycc.W_ovoo, alpha=1.0, beta=1.0)
-    einsum_('lmde,lmkbec->bcdk', t1_erisbb[obobvbvb], t3bbb, out=mycc.W_VVVO, alpha=-0.5, beta=1.0)
-    einsum_('mled,lkbcme->bcdk', t1_erisab[oaobvavb], t3bba, out=mycc.W_VVVO, alpha=-1.0, beta=1.0)
-    einsum_('lmde,jmkdec->lcjk', t1_erisbb[obobvbvb], t3bbb, out=mycc.W_OVOO, alpha=0.5, beta=1.0)
-    einsum_('mled,jkdcme->lcjk', t1_erisab[oaobvavb], t3bba, out=mycc.W_OVOO, alpha=1.0, beta=1.0)
-    einsum_('lmde,lmbekc->bcdk', t1_erisaa[oaoavava], t3aab, out=mycc.W_vVvO, alpha=-0.5, beta=1.0)
-    einsum_('lmde,mkeclb->bcdk', t1_erisab[oaobvavb], t3bba, out=mycc.W_vVvO, alpha=-1.0, beta=1.0)
-    einsum_('lmde,jmdekc->lcjk', t1_erisaa[oaoavava], t3aab, out=mycc.W_oVoO, alpha=0.5, beta=1.0)
-    einsum_('lmde,mkecjd->lcjk', t1_erisab[oaobvavb], t3bba, out=mycc.W_oVoO, alpha=1.0, beta=1.0)
-    einsum_('mled,jmbelc->bcjd', t1_erisab[oaobvavb], t3aab, out=mycc.W_vVoV, alpha=-1.0, beta=1.0)
-    einsum_('lmde,mlecjb->bcjd', t1_erisbb[obobvbvb], t3bba, out=mycc.W_vVoV, alpha=-0.5, beta=1.0)
-    einsum_('mled,jmaekd->aljk', t1_erisab[oaobvavb], t3aab, out=mycc.W_vOoO, alpha=1.0, beta=1.0)
-    einsum_('lmde,mkedja->aljk', t1_erisbb[obobvbvb], t3bba, out=mycc.W_vOoO, alpha=0.5, beta=1.0)
+    einsum_(mycc, 'lmde,lmkbec->bcdk', t1_erisaa[oaoavava], t3aaa, out=mycc.W_vvvo, alpha=-0.5, beta=1.0)
+    einsum_(mycc, 'lmde,lkbcme->bcdk', t1_erisab[oaobvavb], t3aab, out=mycc.W_vvvo, alpha=-1.0, beta=1.0)
+    einsum_(mycc, 'lmde,jmkdec->lcjk', t1_erisaa[oaoavava], t3aaa, out=mycc.W_ovoo, alpha=0.5, beta=1.0)
+    einsum_(mycc, 'lmde,jkdcme->lcjk', t1_erisab[oaobvavb], t3aab, out=mycc.W_ovoo, alpha=1.0, beta=1.0)
+    einsum_(mycc, 'lmde,lmkbec->bcdk', t1_erisbb[obobvbvb], t3bbb, out=mycc.W_VVVO, alpha=-0.5, beta=1.0)
+    einsum_(mycc, 'mled,lkbcme->bcdk', t1_erisab[oaobvavb], t3bba, out=mycc.W_VVVO, alpha=-1.0, beta=1.0)
+    einsum_(mycc, 'lmde,jmkdec->lcjk', t1_erisbb[obobvbvb], t3bbb, out=mycc.W_OVOO, alpha=0.5, beta=1.0)
+    einsum_(mycc, 'mled,jkdcme->lcjk', t1_erisab[oaobvavb], t3bba, out=mycc.W_OVOO, alpha=1.0, beta=1.0)
+    einsum_(mycc, 'lmde,lmbekc->bcdk', t1_erisaa[oaoavava], t3aab, out=mycc.W_vVvO, alpha=-0.5, beta=1.0)
+    einsum_(mycc, 'lmde,mkeclb->bcdk', t1_erisab[oaobvavb], t3bba, out=mycc.W_vVvO, alpha=-1.0, beta=1.0)
+    einsum_(mycc, 'lmde,jmdekc->lcjk', t1_erisaa[oaoavava], t3aab, out=mycc.W_oVoO, alpha=0.5, beta=1.0)
+    einsum_(mycc, 'lmde,mkecjd->lcjk', t1_erisab[oaobvavb], t3bba, out=mycc.W_oVoO, alpha=1.0, beta=1.0)
+    einsum_(mycc, 'mled,jmbelc->bcjd', t1_erisab[oaobvavb], t3aab, out=mycc.W_vVoV, alpha=-1.0, beta=1.0)
+    einsum_(mycc, 'lmde,mlecjb->bcjd', t1_erisbb[obobvbvb], t3bba, out=mycc.W_vVoV, alpha=-0.5, beta=1.0)
+    einsum_(mycc, 'mled,jmaekd->aljk', t1_erisab[oaobvavb], t3aab, out=mycc.W_vOoO, alpha=1.0, beta=1.0)
+    einsum_(mycc, 'lmde,mkedja->aljk', t1_erisbb[obobvbvb], t3bba, out=mycc.W_vOoO, alpha=0.5, beta=1.0)
     return mycc
 
 def compute_r3_uhf(mycc, t2, t3):
@@ -148,141 +113,166 @@ def compute_r3_uhf(mycc, t2, t3):
 
     # aaa
     r3aaa = np.empty_like(t3aaa)
-    einsum_("bcdk,ijad->ijkabc", mycc.W_vvvo, t2aa, out=r3aaa, alpha=0.25, beta=0.0)
-    einsum_("lcjk,ilab->ijkabc", mycc.W_ovoo, t2aa, out=r3aaa, alpha=-0.25, beta=1.0)
-    einsum_("cd,ijkabd->ijkabc", mycc.tf_vv, t3aaa, out=r3aaa, alpha=1.0 / 12.0, beta=1.0)
-    einsum_("lk,ijlabc->ijkabc", mycc.tf_oo, t3aaa, out=r3aaa, alpha=-1.0 / 12.0, beta=1.0)
-    einsum_("abde,ijkdec->ijkabc", mycc.W_vvvv, t3aaa, out=r3aaa, alpha=1.0 / 24.0, beta=1.0)
-    einsum_("lmij,lmkabc->ijkabc", mycc.W_oooo, t3aaa, out=r3aaa, alpha=1.0 / 24.0, beta=1.0)
-    einsum_("alid,ljkdbc->ijkabc", mycc.W_voov, t3aaa, out=r3aaa, alpha=0.25, beta=1.0)
-    einsum_("alid,jkbcld->ijkabc", mycc.W_vOoV, t3aab, out=r3aaa, alpha=0.25, beta=1.0)
+    einsum_(mycc, "bcdk,ijad->ijkabc", mycc.W_vvvo, t2aa, out=r3aaa, alpha=0.25, beta=0.0)
+    einsum_(mycc, "lcjk,ilab->ijkabc", mycc.W_ovoo, t2aa, out=r3aaa, alpha=-0.25, beta=1.0)
+    einsum_(mycc, "cd,ijkabd->ijkabc", mycc.tf_vv, t3aaa, out=r3aaa, alpha=1.0 / 12.0, beta=1.0)
+    einsum_(mycc, "lk,ijlabc->ijkabc", mycc.tf_oo, t3aaa, out=r3aaa, alpha=-1.0 / 12.0, beta=1.0)
+    einsum_(mycc, "abde,ijkdec->ijkabc", mycc.W_vvvv, t3aaa, out=r3aaa, alpha=1.0 / 24.0, beta=1.0)
+    einsum_(mycc, "lmij,lmkabc->ijkabc", mycc.W_oooo, t3aaa, out=r3aaa, alpha=1.0 / 24.0, beta=1.0)
+    einsum_(mycc, "alid,ljkdbc->ijkabc", mycc.W_voov, t3aaa, out=r3aaa, alpha=0.25, beta=1.0)
+    einsum_(mycc, "alid,jkbcld->ijkabc", mycc.W_vOoV, t3aab, out=r3aaa, alpha=0.25, beta=1.0)
     time1 = log.timer_debug1('t3: r3aaa', *time1)
 
     # bbb
     r3bbb = np.empty_like(t3bbb)
-    einsum_("bcdk,ijad->ijkabc", mycc.W_VVVO, t2bb, out=r3bbb, alpha=0.25, beta=0.0)
-    einsum_("lcjk,ilab->ijkabc", mycc.W_OVOO, t2bb, out=r3bbb, alpha=-0.25, beta=1.0)
-    einsum_("cd,ijkabd->ijkabc", mycc.tf_VV, t3bbb, out=r3bbb, alpha=1.0 / 12.0, beta=1.0)
-    einsum_("lk,ijlabc->ijkabc", mycc.tf_OO, t3bbb, out=r3bbb, alpha=-1.0 / 12.0, beta=1.0)
-    einsum_("abde,ijkdec->ijkabc", mycc.W_VVVV, t3bbb, out=r3bbb, alpha=1.0 / 24.0, beta=1.0)
-    einsum_("lmij,lmkabc->ijkabc", mycc.W_OOOO, t3bbb, out=r3bbb, alpha=1.0 / 24.0, beta=1.0)
-    einsum_("alid,ljkdbc->ijkabc", mycc.W_VOOV, t3bbb, out=r3bbb, alpha=0.25, beta=1.0)
-    einsum_("alid,jkbcld->ijkabc", mycc.W_VoOv, t3bba, out=r3bbb, alpha=0.25, beta=1.0)
+    einsum_(mycc, "bcdk,ijad->ijkabc", mycc.W_VVVO, t2bb, out=r3bbb, alpha=0.25, beta=0.0)
+    einsum_(mycc, "lcjk,ilab->ijkabc", mycc.W_OVOO, t2bb, out=r3bbb, alpha=-0.25, beta=1.0)
+    einsum_(mycc, "cd,ijkabd->ijkabc", mycc.tf_VV, t3bbb, out=r3bbb, alpha=1.0 / 12.0, beta=1.0)
+    einsum_(mycc, "lk,ijlabc->ijkabc", mycc.tf_OO, t3bbb, out=r3bbb, alpha=-1.0 / 12.0, beta=1.0)
+    einsum_(mycc, "abde,ijkdec->ijkabc", mycc.W_VVVV, t3bbb, out=r3bbb, alpha=1.0 / 24.0, beta=1.0)
+    einsum_(mycc, "lmij,lmkabc->ijkabc", mycc.W_OOOO, t3bbb, out=r3bbb, alpha=1.0 / 24.0, beta=1.0)
+    einsum_(mycc, "alid,ljkdbc->ijkabc", mycc.W_VOOV, t3bbb, out=r3bbb, alpha=0.25, beta=1.0)
+    einsum_(mycc, "alid,jkbcld->ijkabc", mycc.W_VoOv, t3bba, out=r3bbb, alpha=0.25, beta=1.0)
     time1 = log.timer_debug1('t3: r3bbb', *time1)
 
     # aab
     r3aab = np.empty_like(t3aab)
-    einsum_("bcdk,ijad->ijabkc", mycc.W_vVvO, t2aa, out=r3aab, alpha=0.5, beta=0.0)
-    einsum_("bcjd,iakd->ijabkc", mycc.W_vVoV, t2ab, out=r3aab, alpha=1.0, beta=1.0)
-    einsum_("abdi,jdkc->ijabkc", mycc.W_vvvo, t2ab, out=r3aab, alpha=-0.5, beta=1.0)
-    einsum_("lcjk,ilab->ijabkc", mycc.W_oVoO, t2aa, out=r3aab, alpha=-0.5, beta=1.0)
-    einsum_("aljk,iblc->ijabkc", mycc.W_vOoO, t2ab, out=r3aab, alpha=1.0, beta=1.0)
-    einsum_("laij,lbkc->ijabkc", mycc.W_ovoo, t2ab, out=r3aab, alpha=0.5, beta=1.0)
-    einsum_("cd,ijabkd->ijabkc", mycc.tf_VV, t3aab, out=r3aab, alpha=0.25, beta=1.0)
-    einsum_("ad,ijbdkc->ijabkc", mycc.tf_vv, t3aab, out=r3aab, alpha=-0.5, beta=1.0)
-    einsum_("lk,ijablc->ijabkc", mycc.tf_OO, t3aab, out=r3aab, alpha=-0.25, beta=1.0)
-    einsum_("li,jlabkc->ijabkc", mycc.tf_oo, t3aab, out=r3aab, alpha=0.5, beta=1.0)
-    einsum_("abde,ijdekc->ijabkc", mycc.W_vvvv, t3aab, out=r3aab, alpha=0.125, beta=1.0)
-    einsum_("bced,ijaekd->ijabkc", mycc.W_vVvV, t3aab, out=r3aab, alpha=0.5, beta=1.0)
-    einsum_("lmij,lmabkc->ijabkc", mycc.W_oooo, t3aab, out=r3aab, alpha=0.125, beta=1.0)
-    einsum_("lmik,ljabmc->ijabkc", mycc.W_oOoO, t3aab, out=r3aab, alpha=0.5, beta=1.0)
-    einsum_("alid,ljdbkc->ijabkc", mycc.W_voov, t3aab, out=r3aab, alpha=1.0, beta=1.0)
-    einsum_("alid,lkdcjb->ijabkc", mycc.W_vOoV, t3bba, out=r3aab, alpha=1.0, beta=1.0)
-    einsum_("lcid,ljabkd->ijabkc", mycc.W_oVoV, t3aab, out=r3aab, alpha=-0.5, beta=1.0)
-    einsum_("aldk,ijdblc->ijabkc", mycc.W_vOvO_tc, t3aab, out=r3aab, alpha=-0.5, beta=1.0)
-    einsum_("clkd,ijlabd->ijabkc", mycc.W_VoOv, t3aaa, out=r3aab, alpha=0.25, beta=1.0)
-    einsum_("clkd,ijabld->ijabkc", mycc.W_VOOV, t3aab, out=r3aab, alpha=0.25, beta=1.0)
+    einsum_(mycc, "bcdk,ijad->ijabkc", mycc.W_vVvO, t2aa, out=r3aab, alpha=0.5, beta=0.0)
+    einsum_(mycc, "bcjd,iakd->ijabkc", mycc.W_vVoV, t2ab, out=r3aab, alpha=1.0, beta=1.0)
+    einsum_(mycc, "abdi,jdkc->ijabkc", mycc.W_vvvo, t2ab, out=r3aab, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "lcjk,ilab->ijabkc", mycc.W_oVoO, t2aa, out=r3aab, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "aljk,iblc->ijabkc", mycc.W_vOoO, t2ab, out=r3aab, alpha=1.0, beta=1.0)
+    einsum_(mycc, "laij,lbkc->ijabkc", mycc.W_ovoo, t2ab, out=r3aab, alpha=0.5, beta=1.0)
+    einsum_(mycc, "cd,ijabkd->ijabkc", mycc.tf_VV, t3aab, out=r3aab, alpha=0.25, beta=1.0)
+    einsum_(mycc, "ad,ijbdkc->ijabkc", mycc.tf_vv, t3aab, out=r3aab, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "lk,ijablc->ijabkc", mycc.tf_OO, t3aab, out=r3aab, alpha=-0.25, beta=1.0)
+    einsum_(mycc, "li,jlabkc->ijabkc", mycc.tf_oo, t3aab, out=r3aab, alpha=0.5, beta=1.0)
+    einsum_(mycc, "abde,ijdekc->ijabkc", mycc.W_vvvv, t3aab, out=r3aab, alpha=0.125, beta=1.0)
+    einsum_(mycc, "bced,ijaekd->ijabkc", mycc.W_vVvV, t3aab, out=r3aab, alpha=0.5, beta=1.0)
+    einsum_(mycc, "lmij,lmabkc->ijabkc", mycc.W_oooo, t3aab, out=r3aab, alpha=0.125, beta=1.0)
+    einsum_(mycc, "lmik,ljabmc->ijabkc", mycc.W_oOoO, t3aab, out=r3aab, alpha=0.5, beta=1.0)
+    einsum_(mycc, "alid,ljdbkc->ijabkc", mycc.W_voov, t3aab, out=r3aab, alpha=1.0, beta=1.0)
+    einsum_(mycc, "alid,lkdcjb->ijabkc", mycc.W_vOoV, t3bba, out=r3aab, alpha=1.0, beta=1.0)
+    einsum_(mycc, "lcid,ljabkd->ijabkc", mycc.W_oVoV, t3aab, out=r3aab, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "aldk,ijdblc->ijabkc", mycc.W_vOvO_tc, t3aab, out=r3aab, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "clkd,ijlabd->ijabkc", mycc.W_VoOv, t3aaa, out=r3aab, alpha=0.25, beta=1.0)
+    einsum_(mycc, "clkd,ijabld->ijabkc", mycc.W_VOOV, t3aab, out=r3aab, alpha=0.25, beta=1.0)
     time1 = log.timer_debug1('t3: r3aab', *time1)
 
     # bba
     r3bba = np.empty_like(t3bba)
-    einsum_("cbkd,ijad->ijabkc", mycc.W_vVoV, t2bb, out=r3bba, alpha=0.5, beta=0.0)
-    einsum_("cbdj,kdia->ijabkc", mycc.W_vVvO, t2ab, out=r3bba, alpha=1.0, beta=1.0)
-    einsum_("abdi,kcjd->ijabkc", mycc.W_VVVO, t2ab, out=r3bba, alpha=-0.5, beta=1.0)
-    einsum_("clkj,ilab->ijabkc", mycc.W_vOoO, t2bb, out=r3bba, alpha=-0.5, beta=1.0)
-    einsum_("lakj,lcib->ijabkc", mycc.W_oVoO, t2ab, out=r3bba, alpha=1.0, beta=1.0)
-    einsum_("laij,kclb->ijabkc", mycc.W_OVOO, t2ab, out=r3bba, alpha=0.5, beta=1.0)
-    einsum_("cd,ijabkd->ijabkc", mycc.tf_vv, t3bba, out=r3bba, alpha=0.25, beta=1.0)
-    einsum_("ad,ijbdkc->ijabkc", mycc.tf_VV, t3bba, out=r3bba, alpha=-0.5, beta=1.0)
-    einsum_("lk,ijablc->ijabkc", mycc.tf_oo, t3bba, out=r3bba, alpha=-0.25, beta=1.0)
-    einsum_("li,jlabkc->ijabkc", mycc.tf_OO, t3bba, out=r3bba, alpha=0.5, beta=1.0)
-    einsum_("abde,ijdekc->ijabkc", mycc.W_VVVV, t3bba, out=r3bba, alpha=0.125, beta=1.0)
-    einsum_("cbde,ijaekd->ijabkc", mycc.W_vVvV, t3bba, out=r3bba, alpha=0.5, beta=1.0)
-    einsum_("lmij,lmabkc->ijabkc", mycc.W_OOOO, t3bba, out=r3bba, alpha=0.125, beta=1.0)
-    einsum_("mlki,ljabmc->ijabkc", mycc.W_oOoO, t3bba, out=r3bba, alpha=0.5, beta=1.0)
-    einsum_("alid,ljdbkc->ijabkc", mycc.W_VOOV, t3bba, out=r3bba, alpha=1.0, beta=1.0)
-    einsum_("alid,lkdcjb->ijabkc", mycc.W_VoOv, t3aab, out=r3bba, alpha=1.0, beta=1.0)
-    einsum_("cldi,ljabkd->ijabkc", mycc.W_vOvO_tc, t3bba, out=r3bba, alpha=-0.5, beta=1.0)
-    einsum_("lakd,ijdblc->ijabkc", mycc.W_oVoV, t3bba, out=r3bba, alpha=-0.5, beta=1.0)
-    einsum_("clkd,ijlabd->ijabkc", mycc.W_vOoV, t3bbb, out=r3bba, alpha=0.25, beta=1.0)
-    einsum_("clkd,ijabld->ijabkc", mycc.W_voov, t3bba, out=r3bba, alpha=0.25, beta=1.0)
+    einsum_(mycc, "cbkd,ijad->ijabkc", mycc.W_vVoV, t2bb, out=r3bba, alpha=0.5, beta=0.0)
+    einsum_(mycc, "cbdj,kdia->ijabkc", mycc.W_vVvO, t2ab, out=r3bba, alpha=1.0, beta=1.0)
+    einsum_(mycc, "abdi,kcjd->ijabkc", mycc.W_VVVO, t2ab, out=r3bba, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "clkj,ilab->ijabkc", mycc.W_vOoO, t2bb, out=r3bba, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "lakj,lcib->ijabkc", mycc.W_oVoO, t2ab, out=r3bba, alpha=1.0, beta=1.0)
+    einsum_(mycc, "laij,kclb->ijabkc", mycc.W_OVOO, t2ab, out=r3bba, alpha=0.5, beta=1.0)
+    einsum_(mycc, "cd,ijabkd->ijabkc", mycc.tf_vv, t3bba, out=r3bba, alpha=0.25, beta=1.0)
+    einsum_(mycc, "ad,ijbdkc->ijabkc", mycc.tf_VV, t3bba, out=r3bba, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "lk,ijablc->ijabkc", mycc.tf_oo, t3bba, out=r3bba, alpha=-0.25, beta=1.0)
+    einsum_(mycc, "li,jlabkc->ijabkc", mycc.tf_OO, t3bba, out=r3bba, alpha=0.5, beta=1.0)
+    einsum_(mycc, "abde,ijdekc->ijabkc", mycc.W_VVVV, t3bba, out=r3bba, alpha=0.125, beta=1.0)
+    einsum_(mycc, "cbde,ijaekd->ijabkc", mycc.W_vVvV, t3bba, out=r3bba, alpha=0.5, beta=1.0)
+    einsum_(mycc, "lmij,lmabkc->ijabkc", mycc.W_OOOO, t3bba, out=r3bba, alpha=0.125, beta=1.0)
+    einsum_(mycc, "mlki,ljabmc->ijabkc", mycc.W_oOoO, t3bba, out=r3bba, alpha=0.5, beta=1.0)
+    einsum_(mycc, "alid,ljdbkc->ijabkc", mycc.W_VOOV, t3bba, out=r3bba, alpha=1.0, beta=1.0)
+    einsum_(mycc, "alid,lkdcjb->ijabkc", mycc.W_VoOv, t3aab, out=r3bba, alpha=1.0, beta=1.0)
+    einsum_(mycc, "cldi,ljabkd->ijabkc", mycc.W_vOvO_tc, t3bba, out=r3bba, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "lakd,ijdblc->ijabkc", mycc.W_oVoV, t3bba, out=r3bba, alpha=-0.5, beta=1.0)
+    einsum_(mycc, "clkd,ijlabd->ijabkc", mycc.W_vOoV, t3bbb, out=r3bba, alpha=0.25, beta=1.0)
+    einsum_(mycc, "clkd,ijabld->ijabkc", mycc.W_voov, t3bba, out=r3bba, alpha=0.25, beta=1.0)
     time1 = log.timer_debug1('t3: r3bba', *time1)
+    return [r3aaa, r3aab, r3bba, r3bbb]
 
-    return (r3aaa, r3aab, r3bba, r3bbb)
+def antisymmetrize_r3_uhf_(r3):
+    r3[0] = (r3[0] - r3[0].transpose(1, 0, 2, 3, 4, 5) - r3[0].transpose(0, 2, 1, 3, 4, 5)
+    - r3[0].transpose(2, 1, 0, 3, 4, 5) + r3[0].transpose(1, 2, 0, 3, 4, 5) + r3[0].transpose(2, 0, 1, 3, 4, 5))
+    r3[0] = (r3[0] - r3[0].transpose(0, 1, 2, 4, 3, 5) - r3[0].transpose(0, 1, 2, 3, 5, 4)
+    - r3[0].transpose(0, 1, 2, 5, 4, 3) + r3[0].transpose(0, 1, 2, 4, 5, 3) + r3[0].transpose(0, 1, 2, 5, 3, 4))
+    r3[1] -= r3[1].transpose(1, 0, 2, 3, 4, 5)
+    r3[1] -= r3[1].transpose(0, 1, 3, 2, 4, 5)
+    r3[2] -= r3[2].transpose(1, 0, 2, 3, 4, 5)
+    r3[2] -= r3[2].transpose(0, 1, 3, 2, 4, 5)
+    r3[3] = (r3[3] - r3[3].transpose(1, 0, 2, 3, 4, 5) - r3[3].transpose(0, 2, 1, 3, 4, 5)
+    - r3[3].transpose(2, 1, 0, 3, 4, 5) + r3[3].transpose(1, 2, 0, 3, 4, 5) + r3[3].transpose(2, 0, 1, 3, 4, 5))
+    r3[3] = (r3[3] - r3[3].transpose(0, 1, 2, 4, 3, 5) - r3[3].transpose(0, 1, 2, 3, 5, 4)
+    - r3[3].transpose(0, 1, 2, 5, 4, 3) + r3[3].transpose(0, 1, 2, 4, 5, 3) + r3[3].transpose(0, 1, 2, 5, 3, 4))
 
-def antisymmetrize_r3_uhf(r3):
-    r3aaa, r3aab, r3bba, r3bbb = r3
-    r3aaa = (r3aaa - r3aaa.transpose(1, 0, 2, 3, 4, 5) - r3aaa.transpose(0, 2, 1, 3, 4, 5)
-    - r3aaa.transpose(2, 1, 0, 3, 4, 5) + r3aaa.transpose(1, 2, 0, 3, 4, 5) + r3aaa.transpose(2, 0, 1, 3, 4, 5))
-    r3aaa = (r3aaa - r3aaa.transpose(0, 1, 2, 4, 3, 5) - r3aaa.transpose(0, 1, 2, 3, 5, 4)
-    - r3aaa.transpose(0, 1, 2, 5, 4, 3) + r3aaa.transpose(0, 1, 2, 4, 5, 3) + r3aaa.transpose(0, 1, 2, 5, 3, 4))
-    r3bbb = (r3bbb - r3bbb.transpose(1, 0, 2, 3, 4, 5) - r3bbb.transpose(0, 2, 1, 3, 4, 5)
-    - r3bbb.transpose(2, 1, 0, 3, 4, 5) + r3bbb.transpose(1, 2, 0, 3, 4, 5) + r3bbb.transpose(2, 0, 1, 3, 4, 5))
-    r3bbb = (r3bbb - r3bbb.transpose(0, 1, 2, 4, 3, 5) - r3bbb.transpose(0, 1, 2, 3, 5, 4)
-    - r3bbb.transpose(0, 1, 2, 5, 4, 3) + r3bbb.transpose(0, 1, 2, 4, 5, 3) + r3bbb.transpose(0, 1, 2, 5, 3, 4))
-    r3aab -= r3aab.transpose(1, 0, 2, 3, 4, 5)
-    r3aab -= r3aab.transpose(0, 1, 3, 2, 4, 5)
-    r3bba -= r3bba.transpose(1, 0, 2, 3, 4, 5)
-    r3bba -= r3bba.transpose(0, 1, 3, 2, 4, 5)
-    return (r3aaa, r3aab, r3bba, r3bbb)
-
-def r3_divide_e_uhf(r3, mo_energy, level_shift):
-    r3aaa, r3aab, r3bba, r3bbb = r3
-    nocca, noccb = r3aaa.shape[0], r3bbb.shape[0]
-    eia_a = mo_energy[0][:nocca, None] - mo_energy[0][None, nocca:] - level_shift
-    eia_b = mo_energy[1][:noccb, None] - mo_energy[1][None, noccb:] - level_shift
+def r3_divide_e_uhf_(mycc, r3, eris):
+    nocca, noccb = r3[0].shape[0], r3[-1].shape[0]
+    eia_a = eris.mo_energy[0][:nocca, None] - eris.mo_energy[0][None, nocca:] - mycc.level_shift
+    eia_b = eris.mo_energy[1][:noccb, None] - eris.mo_energy[1][None, noccb:] - mycc.level_shift
 
     eijkabc_aaa = (eia_a[:, None, None, :, None, None] + eia_a[None, :, None, None, :, None]
                     + eia_a[None, None, :, None, None, :])
-    r3aaa /= eijkabc_aaa
+    r3[0] /= eijkabc_aaa
     eijkabc_aaa = None
-    eijkabc_bbb = (eia_b[:, None, None, :, None, None] + eia_b[None, :, None, None, :, None]
-                    + eia_b[None, None, :, None, None, :])
-    r3bbb /= eijkabc_bbb
-    eijkabc_bbb = None
     eijkabc_aab = (eia_a[:, None, :, None, None, None] + eia_a[None, :, None, :, None,  None]
                     + eia_b[None, None, None, None, :, :])
-    r3aab /= eijkabc_aab
+    r3[1] /= eijkabc_aab
     eijkabc_aab = None
     eijkabc_bba = (eia_b[:, None, :, None, None, None] + eia_b[None, :, None, :, None, None]
                     + eia_a[None, None, None, None, :, :])
-    r3bba /= eijkabc_bba
+    r3[2] /= eijkabc_bba
     eijkabc_bba = None
-    return (r3aaa, r3aab, r3bba, r3bbb)
+    eijkabc_bbb = (eia_b[:, None, None, :, None, None] + eia_b[None, :, None, None, :, None]
+                    + eia_b[None, None, :, None, None, :])
+    r3[3] /= eijkabc_bbb
+    eijkabc_bbb = None
 
-def update_amps_t3_uhf(mycc, tamps):
+def update_amps_uccsdt_(mycc, tamps, eris):
     time0 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
-    _, t2, t3 = tamps
+    t1, t2, t3 = tamps
+    t1a, t1b = t1
+    t2aa, t2ab, t2bb = t2
     t3aaa, t3aab, t3bba, t3bbb = t3
 
-    intermediates_t3_uhf(mycc, t2)
-    intermediates_t3_add_t3_uhf(mycc, t3)
-    time1 = log.timer_debug1('t3: update intermediates', *time0)
+    # t1 t2
+    update_t1_fock_eris_uhf_(mycc, t1, eris)
+    time1 = log.timer_debug1('t1t2: update fock and eris', *time0)
+    intermediates_t1t2_uhf_(mycc, t2)
+    time1 = log.timer_debug1('t1t2: update intermediates', *time1)
+    r1, r2 = compute_r1r2_uhf(mycc, t2)
+    r1r2_add_t3_uhf_(mycc, t3, r1, r2)
+    time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
+    # antisymmetrize R2
+    antisymmetrize_r2_uhf_(r2)
+    time1 = log.timer_debug1('t1t2: antisymmetrize r2', *time1)
+    # divide by eijkabc
+    r1r2_divide_e_uhf_(mycc, r1, r2, eris)
+    (r1a, r1b), (r2aa, r2ab, r2bb) = r1, r2
+    time1 = log.timer_debug1('t1t2: divide r1 & r2 by eia & eijab', *time1)
 
+    res_norm = [np.linalg.norm(r1a), np.linalg.norm(r1b),
+                np.linalg.norm(r2aa), np.linalg.norm(r2ab), np.linalg.norm(r2bb)]
+
+    t1a += r1a
+    t1b += r1b
+    t2aa += r2aa
+    t2ab += r2ab
+    t2bb += r2bb
+    time1 = log.timer_debug1('t1t2: update t1 & t2', *time1)
+    time0 = log.timer_debug1('t1t2 total', *time0)
+
+    # t3
+    intermediates_t3_uhf_(mycc, t2)
+    intermediates_t3_add_t3_uhf_(mycc, t3)
+    mycc.t1_erisaa, mycc.t1_erisab, mycc.t1_erisbb = None, None, None
+    time1 = log.timer_debug1('t3: update intermediates', *time0)
     r3 = compute_r3_uhf(mycc, t2, t3)
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # antisymmetrize r3
-    r3 = antisymmetrize_r3_uhf(r3)
+    antisymmetrize_r3_uhf_(r3)
     time1 = log.timer_debug1('t3: antisymmetrize r3', *time1)
     # divide by eijkabc
-    r3 = r3_divide_e_uhf(r3, mycc.mo_energy, mycc.level_shift)
-    time1 = log.timer_debug1('t3: divide r3 by eijkabc', *time1)
+    r3_divide_e_uhf_(mycc, r3, eris)
     r3aaa, r3aab, r3bba, r3bbb = r3
+    time1 = log.timer_debug1('t3: divide r3 by eijkabc', *time1)
 
-    mycc.r_norm[2] = np.sqrt(np.linalg.norm(r3aaa)**2 + np.linalg.norm(r3bbb)**2 +
-                            np.linalg.norm(r3aab)**2 + np.linalg.norm(r3bba)**2)
+    res_norm += [np.linalg.norm(r3aaa), + np.linalg.norm(r3aab), np.linalg.norm(r3bba), + np.linalg.norm(r3bbb)]
+
     t3aaa += r3aaa
     r3aaa = None
     t3bbb += r3bbb
@@ -291,20 +281,23 @@ def update_amps_t3_uhf(mycc, tamps):
     r3aab = None
     t3bba += r3bba
     r3bba = None
+    t3 = (t3aaa, t3aab, t3bba, t3bbb)
     time1 = log.timer_debug1('t3: update t3', *time1)
     time0 = log.timer_debug1('t3 total', *time0)
-    return (t3aaa, t3aab, t3bba, t3bbb)
+
+    tamps = (t1, t2, t3)
+    return res_norm
 
 
 class UCCSDT(uccsdt.UCCSDT):
 
+    do_tril_maxT = getattr(__config__, 'cc_uccsdt_UCCSDT_do_tril_maxT', False)
+
     def __init__(self, mf, frozen=None, mo_coeff=None, mo_occ=None):
         super().__init__(mf, frozen, mo_coeff, mo_occ)
 
-        self.do_tril = [False, False, False]
+    update_amps_ = update_amps_uccsdt_
 
-    update_amps_t1t2_with_t3_uhf = update_amps_t1t2_with_t3_uhf
-    update_amps_t3_uhf = update_amps_t3_uhf
 
 if __name__ == "__main__":
 
@@ -370,12 +363,12 @@ if __name__ == "__main__":
         frozen = 0
 
         mycc = UCCSDT(mf, frozen=frozen)
+        mycc.set_einsum_backend('pytblis')
         mycc.conv_tol = 1e-12
         mycc.conv_tol_normt = 1e-10
         mycc.max_cycle = 100
         mycc.verbose = 5
-        mycc.diis_with_t3 = True
-        mycc.num_of_subiters = 2
-        ecorr, t1, t2, t3 = mycc.kernel()
+        mycc.do_diis_maxT = True
+        ecorr, tamps = mycc.kernel()
         print("My E_corr: % .16f    Ref E_corr: % .16f    Diff: % .16e"%(ecorr, ref_ecorr, ecorr - ref_ecorr))
         print()
