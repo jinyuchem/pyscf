@@ -17,7 +17,7 @@
 #
 
 '''
-UHF-CCSDT with full T3 amplitudes stored
+UHF-CCSDT with full T3 storage.
 '''
 
 import numpy as np
@@ -29,13 +29,13 @@ from pyscf.mp.ump2 import get_nocc, get_nmo, get_frozen_mask
 from pyscf.cc import uccsdt
 from pyscf.cc.rccsdt import einsum_, run_diis, _finalize
 from pyscf.cc.uccsdt import (update_t1_fock_eris_uhf_, intermediates_t1t2_uhf_, compute_r1r2_uhf,
-                                antisymmetrize_r2_uhf_, r1r2_divide_e_uhf_, intermediates_t3_uhf_)
+                            antisymmetrize_r2_uhf_, r1r2_divide_e_uhf_, intermediates_t3_uhf_, _PhysicistsERIs)
 from pyscf import __config__
 
 
 def r1r2_add_t3_uhf_(mycc, t3, r1, r2):
-    '''add the contributions from t3 amplitudes to r1r2'''
-    nocca, noccb = mycc.nocca, mycc.noccb
+    '''Add the T3 contributions to r1 and r2. T3 amplitudes are stored in full form.'''
+    nocca, noccb = mycc.nocc
     t1_focka, t1_fockb = mycc.t1_focka, mycc.t1_fockb
     t1_erisaa, t1_erisab, t1_erisbb = mycc.t1_erisaa, mycc.t1_erisab, mycc.t1_erisbb
     t3aaa, t3aab, t3bba, t3bbb = t3
@@ -78,8 +78,8 @@ def r1r2_add_t3_uhf_(mycc, t3, r1, r2):
     einsum_(mycc, "nmej,imabne->ijab", t1_erisab[:nocca, :noccb, nocca:, :noccb], t3bba, out=r2bb, alpha=-0.5, beta=1.0)
 
 def intermediates_t3_add_t3_uhf_(mycc, t3):
-    '''add the contributions of t3 to t3 intermediates'''
-    nocca, noccb = mycc.nocca, mycc.noccb
+    '''Add the T3-dependent contributions to the T3 intermediates, with T3 stored in full form.'''
+    nocca, noccb = mycc.nocc
     t1_erisaa, t1_erisab, t1_erisbb = mycc.t1_erisaa, mycc.t1_erisab, mycc.t1_erisbb
     t3aaa, t3aab, t3bba, t3bbb = t3
 
@@ -105,6 +105,7 @@ def intermediates_t3_add_t3_uhf_(mycc, t3):
     return mycc
 
 def compute_r3_uhf(mycc, t2, t3):
+    '''Compute r3 with full T3 amplitudes; r3 is returned in full form as well.'''
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
@@ -198,10 +199,10 @@ def antisymmetrize_r3_uhf_(r3):
     r3[3] = (r3[3] - r3[3].transpose(0, 1, 2, 4, 3, 5) - r3[3].transpose(0, 1, 2, 3, 5, 4)
     - r3[3].transpose(0, 1, 2, 5, 4, 3) + r3[3].transpose(0, 1, 2, 4, 5, 3) + r3[3].transpose(0, 1, 2, 5, 3, 4))
 
-def r3_divide_e_uhf_(mycc, r3, eris):
+def r3_divide_e_uhf_(mycc, r3, mo_energy):
     nocca, noccb = r3[0].shape[0], r3[-1].shape[0]
-    eia_a = eris.mo_energy[0][:nocca, None] - eris.mo_energy[0][None, nocca:] - mycc.level_shift
-    eia_b = eris.mo_energy[1][:noccb, None] - eris.mo_energy[1][None, noccb:] - mycc.level_shift
+    eia_a = mo_energy[0][:nocca, None] - mo_energy[0][None, nocca:] - mycc.level_shift
+    eia_b = mo_energy[1][:noccb, None] - mo_energy[1][None, noccb:] - mycc.level_shift
 
     eijkabc_aaa = (eia_a[:, None, None, :, None, None] + eia_a[None, :, None, None, :, None]
                     + eia_a[None, None, :, None, None, :])
@@ -221,6 +222,8 @@ def r3_divide_e_uhf_(mycc, r3, eris):
     eijkabc_bbb = None
 
 def update_amps_uccsdt_(mycc, tamps, eris):
+    '''Update UCCSDT amplitudes in place, with T3 amplitudes stored in full form.'''
+    assert (isinstance(eris, _PhysicistsERIs))
     time0 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
@@ -228,6 +231,7 @@ def update_amps_uccsdt_(mycc, tamps, eris):
     t1a, t1b = t1
     t2aa, t2ab, t2bb = t2
     t3aaa, t3aab, t3bba, t3bbb = t3
+    mo_energy = eris.mo_energy[:]
 
     # t1 t2
     update_t1_fock_eris_uhf_(mycc, t1, eris)
@@ -241,7 +245,7 @@ def update_amps_uccsdt_(mycc, tamps, eris):
     antisymmetrize_r2_uhf_(r2)
     time1 = log.timer_debug1('t1t2: antisymmetrize r2', *time1)
     # divide by eijkabc
-    r1r2_divide_e_uhf_(mycc, r1, r2, eris)
+    r1r2_divide_e_uhf_(mycc, r1, r2, mo_energy)
     (r1a, r1b), (r2aa, r2ab, r2bb) = r1, r2
     time1 = log.timer_debug1('t1t2: divide r1 & r2 by eia & eijab', *time1)
 
@@ -267,11 +271,11 @@ def update_amps_uccsdt_(mycc, tamps, eris):
     antisymmetrize_r3_uhf_(r3)
     time1 = log.timer_debug1('t3: antisymmetrize r3', *time1)
     # divide by eijkabc
-    r3_divide_e_uhf_(mycc, r3, eris)
+    r3_divide_e_uhf_(mycc, r3, mo_energy)
     r3aaa, r3aab, r3bba, r3bbb = r3
     time1 = log.timer_debug1('t3: divide r3 by eijkabc', *time1)
 
-    res_norm += [np.linalg.norm(r3aaa), + np.linalg.norm(r3aab), np.linalg.norm(r3bba), + np.linalg.norm(r3bbb)]
+    res_norm += [np.linalg.norm(r3aaa), np.linalg.norm(r3aab), np.linalg.norm(r3bba), np.linalg.norm(r3bbb)]
 
     t3aaa += r3aaa
     r3aaa = None
@@ -285,7 +289,7 @@ def update_amps_uccsdt_(mycc, tamps, eris):
     time1 = log.timer_debug1('t3: update t3', *time1)
     time0 = log.timer_debug1('t3 total', *time0)
 
-    tamps = (t1, t2, t3)
+    tamps = [t1, t2, t3]
     return res_norm
 
 
@@ -294,7 +298,7 @@ class UCCSDT(uccsdt.UCCSDT):
     do_tril_maxT = getattr(__config__, 'cc_uccsdt_UCCSDT_do_tril_maxT', False)
 
     def __init__(self, mf, frozen=None, mo_coeff=None, mo_occ=None):
-        super().__init__(mf, frozen, mo_coeff, mo_occ)
+        uccsdt.UCCSDT.__init__(self, mf, frozen, mo_coeff, mo_occ)
 
     update_amps_ = update_amps_uccsdt_
 
@@ -303,72 +307,22 @@ if __name__ == "__main__":
 
     from pyscf import gto, scf, df
 
-    test_cases = {
-        # 'Li_spin3': {'atom': "Li 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': 3, 'ref_ecorr': -0.002851158707014802},
-        # 'Li_spinm3': {'atom': "Li 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': -3, 'ref_ecorr': -0.002851158707014802},
-        # 'Li_spin1': {'atom': "Li 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': 1, 'ref_ecorr': -0.0002169873693235238},
-        # 'Li_spinm1': {'atom': "Li 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': -1, 'ref_ecorr': -0.0002169873693235238},
-        # 'Be_spin4': {'atom': "Be 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': 4, 'ref_ecorr': -0.00798895384046908},
-        # 'Be_spinm4': {'atom': "Be 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': -4, 'ref_ecorr': -0.00798895384046908},
-        # 'Be_spin2': {'atom': "Be 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': 2, 'ref_ecorr': -0.004375255089139482},
-        # 'Be_spinm2': {'atom': "Be 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': -2, 'ref_ecorr': -0.004375255089139482},
-        # 'Be_spin0': {'atom': "Be 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': 0, 'ref_ecorr': -0.04507000858611861},
-        # 'B_spin5': {'atom': "B 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': 5, 'ref_ecorr': -0.01477294876671822},
-        # 'B_spinm5': {'atom': "B 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': -5, 'ref_ecorr': -0.01477294876671822},
-        # 'B_spin3': {'atom': "B 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': 3, 'ref_ecorr': -0.01325814002194714},
-        # 'B_spinm3': {'atom': "B 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': -3, 'ref_ecorr': -0.01325814002194714},
-        # 'B_spin1': {'atom': "B 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': 1, 'ref_ecorr': -0.06066524073415023},
-        # 'B_spinm1': {'atom': "B 0.0 0.0 0.0", 'basis': 'ccpvdz', 'spin': -1, 'ref_ecorr': -0.06066524073415023},
-        # 'O2': {'atom': "O 0 0 0; O 0 0 1.21", 'basis': 'sto3g', 'spin': 2, 'ref_ecorr': -0.1095053789680588},
-        'O2_631g': {'atom': "O 0 0 0; O 0 0 1.21", 'basis': '631g', 'spin': 2, 'ref_ecorr': -0.2413923134881862},
-    }
+    mol = gto.M(atom="O 0 0 0; O 0 0 1.21", basis='631g', verbose=0, spin=2)
+    mf = scf.UHF(mol)
+    mf.level_shift = 0.0
+    mf.conv_tol = 1e-14
+    mf.max_cycle = 1000
+    mf.kernel()
 
-    run_test = {
-        # 'Li_spin3': False,
-        # 'Li_spinm3': False,
-        # 'Li_spin1': True,
-        # 'Li_spinm1': True,
-        # 'Be_spin4': False,
-        # 'Be_spinm4': False,
-        # 'Be_spin2': True,
-        # 'Be_spinm2': True,
-        # 'Be_spin0': True,
-        # 'B_spin5': False,
-        # 'B_spinm5': False,
-        # 'B_spin3': True,
-        # 'B_spinm3': True,
-        # 'B_spin1': True,
-        # 'B_spinm1': True,
-        # 'O2': True,
-        'O2_631g': True,
-    }
-
-    for case in test_cases.keys():
-        if not run_test[case]:
-            continue
-        print(case)
-        atom = test_cases[case]['atom']
-        basis = test_cases[case]['basis']
-        spin = test_cases[case]['spin']
-        ref_ecorr = test_cases[case]['ref_ecorr']
-
-        mol = gto.M(atom=atom, basis=basis, verbose=0, spin=spin)
-
-        mf = scf.UHF(mol)
-        mf.level_shift = 0.0
-        mf.conv_tol = 1e-14
-        mf.max_cycle = 1000
-        mf.kernel()
-
-        frozen = 0
-
-        mycc = UCCSDT(mf, frozen=frozen)
-        mycc.set_einsum_backend('pytblis')
-        mycc.conv_tol = 1e-12
-        mycc.conv_tol_normt = 1e-10
-        mycc.max_cycle = 100
-        mycc.verbose = 5
-        mycc.do_diis_maxT = True
-        ecorr, tamps = mycc.kernel()
-        print("My E_corr: % .16f    Ref E_corr: % .16f    Diff: % .16e"%(ecorr, ref_ecorr, ecorr - ref_ecorr))
-        print()
+    ref_ecorr = -0.2413923134881862
+    mycc = UCCSDT(mf, frozen=0)
+    mycc.set_einsum_backend('numpy')
+    mycc.conv_tol = 1e-12
+    mycc.conv_tol_normt = 1e-10
+    mycc.max_cycle = 100
+    mycc.verbose = 5
+    mycc.do_diis_maxT = True
+    mycc.incore_complete = True
+    ecorr, tamps = mycc.kernel()
+    print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc.e_corr, ref_ecorr, mycc.e_corr - ref_ecorr))
+    print()

@@ -17,10 +17,12 @@
 #
 
 '''
-RHF-CCSDTQ with T4 amplitudes stored only for the i <= j <= k <= l index combinations
+RHF-CCSDTQ with T4 amplitudes stored only for the i <= j <= k <= l index combinations.
+T1-dressed formalism is used, where the T1 amplitudes are absorbed into the Fock matrix and ERIs.
 
 Ref:
-JCP 142, 064108 (2015); DOI:10.1063/1.4907278
+J. Chem. Phys. 142, 064108 (2015); DOI:10.1063/1.4907278
+Chem. Phys. Lett. 228, 233 (1994); DOI:10.1016/0009-2614(94)00898-1
 '''
 
 import numpy as np
@@ -30,22 +32,18 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.mp.mp2 import get_nocc, get_nmo, get_frozen_mask, get_e_hf, _mo_without_core
 from pyscf.cc import ccsd, _ccsd, rccsdt
-from pyscf.cc.rccsdt import (einsum_, _make_eris_incore_rccsdt, _make_df_eris_incore_rccsdt, t3_symm_ip_,
-                            update_t1_fock_eris_, init_amps, energy, intermediates_t1t2_, compute_r1r2, r1r2_divide_e_,
-                            intermediates_t3_, run_diis, amplitudes_to_vector_rhf, vector_to_amplitudes_rhf,
-                            ao2mo_rccsdt, _finalize, restore_from_diis_, kernel)
-from pyscf.cc.rccsdt_highm import (t3_symm, t3_p_sum_ip_, purify_tamps_, r1r2_add_t3_, intermediates_t3_add_t3_,
-                                    compute_r3, r3_divide_e_)
+from pyscf.cc.rccsdt import (einsum_, t3_spin_summation_inplace_, symmetrize_tamps_tril_, purify_tamps_tril_,
+                            update_t1_fock_eris_, intermediates_t1t2_, compute_r1r2, r1r2_divide_e_,
+                            intermediates_t3_, kernel, _PhysicistsERIs)
+from pyscf.cc.rccsdt_highm import (t3_spin_summation, t3_perm_symmetrize_inplace_, purify_tamps_, r1r2_add_t3_,
+                                    intermediates_t3_add_t3_, compute_r3, r3_divide_e_)
 from pyscf import __config__
 
 
-def t4_symm_ip_(A, nocc4, nvir, pattern, alpha=1.0, beta=0.0):
+def t4_spin_summation_inplace_c(A, nocc4, nvir, pattern, alpha=1.0, beta=0.0):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
-
     pattern_c = pattern.encode('utf-8')
-
-    drv = _ccsd.libcc.t4_symm_ip_c
-    drv(
+    _ccsd.libccsdt.t4_spin_summation_inplace_c(
         A.ctypes.data_as(ctypes.c_void_p),
         ctypes.c_int64(nocc4),
         ctypes.c_int64(nvir),
@@ -57,26 +55,22 @@ def t4_symm_ip_(A, nocc4, nvir, pattern, alpha=1.0, beta=0.0):
 def t4_add_(t4, r4, nocc4, nvir):
     assert t4.dtype == np.float64 and t4.flags['C_CONTIGUOUS'], "t4 must be a contiguous float64 array"
     assert r4.dtype == np.float64 and r4.flags['C_CONTIGUOUS'], "r4 must be a contiguous float64 array"
-
-    drv = _ccsd.libcc.t4_add_c
-    drv(
+    _ccsd.libccsdt.t4_add_c(
         t4.ctypes.data_as(ctypes.c_void_p),
         r4.ctypes.data_as(ctypes.c_void_p),
         ctypes.c_int64(nocc4),
         ctypes.c_int64(nvir),
     )
 
-def call_unpack_24fold_c(t4, t4_blk, map_, mask, i0, i1, j0, j1, k0, k1, l0, l1,
+def unpack_t4_tril2block_(t4, t4_blk, map_, mask, i0, i1, j0, j1, k0, k1, l0, l1,
                             nocc, nvir, blk_i, blk_j, blk_k, blk_l):
     assert t4.dtype == np.float64 and t4_blk.dtype == np.float64
     assert map_.dtype == np.int64 and mask.dtype == np.bool_
-
     t4_c = np.ascontiguousarray(t4)
     t4_blk_c = np.ascontiguousarray(t4_blk)
     map_c = np.ascontiguousarray(map_)
     mask_c = np.ascontiguousarray(mask)
-
-    _ccsd.libcc.unpack_24fold_c(
+    _ccsd.libccsdt.unpack_t4_tril2block_c(
         t4_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
         t4_blk_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
         map_c.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
@@ -90,16 +84,14 @@ def call_unpack_24fold_c(t4, t4_blk, map_, mask, i0, i1, j0, j1, k0, k1, l0, l1,
     )
     return t4_blk
 
-def call_update_packed_24fold_c(t4, t4_blk, map_, i0, i1, j0, j1, k0, k1, l0, l1,
+def accumulate_t4_block2tril_(t4, t4_blk, map_, i0, i1, j0, j1, k0, k1, l0, l1,
                                 nocc, nvir, blk_i, blk_j, blk_k, blk_l, alpha, beta):
     assert t4.dtype == np.float64 and t4_blk.dtype == np.float64
     assert map_.dtype == np.int64
-
     t4_c = np.ascontiguousarray(t4)
     t4_blk_c = np.ascontiguousarray(t4_blk)
     map_c = np.ascontiguousarray(map_)
-
-    _ccsd.libcc.update_packed_24fold_c(
+    _ccsd.libccsdt.accumulate_t4_block2tril_c(
         t4_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
         t4_blk_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
         map_c.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
@@ -113,128 +105,28 @@ def call_update_packed_24fold_c(t4, t4_blk, map_, i0, i1, j0, j1, k0, k1, l0, l1
     )
     return t4
 
-def setup_tril2cube_t4_(mycc):
-    nocc = mycc.nocc
-    nocc4 = nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24
-    tril2cube_map = np.zeros((24, nocc, nocc, nocc, nocc), dtype=np.int64)
-    tril2cube_mask = np.zeros((24, nocc, nocc, nocc, nocc), dtype=np.bool_)
-    tril2cube_tp = []
-
-    i, j, k, l = np.meshgrid(np.arange(nocc), np.arange(nocc), np.arange(nocc), np.arange(nocc), indexing='ij')
-    t4_map = np.where((i <= j) & (j <= k) & (k <= l))
-
-    import itertools
-    perms = list(itertools.permutations([0, 1, 2, 3]))
-    for idx, perm in enumerate(perms):
-        tril2cube_map[idx, t4_map[perm[0]], t4_map[perm[1]], t4_map[perm[2]], t4_map[perm[3]]] = np.arange(nocc4)
-
-    labels = ('i', 'j', 'k', 'l')
-    collect_relation = {('i', 'j'), ('i', 'k'), ('i', 'l'), ('j', 'k'), ('j', 'l'), ('k', 'l')}
-    var_map = {'i': i, 'j': j, 'k': k, 'l': l}
-    for idx, perm in enumerate(perms):
-        indices = np.argsort(perm)
-        vars_sorted = [var_map[labels[indices[i]]] for i in range(4)]
-        comparisons = []
-        for comparison_idx in range(3):
-            left_label = labels[indices[comparison_idx]]
-            right_label = labels[indices[comparison_idx + 1]]
-            if (right_label, left_label) in collect_relation:
-                comparisons.append(vars_sorted[comparison_idx] < vars_sorted[comparison_idx + 1])
-            else:
-                comparisons.append(vars_sorted[comparison_idx] <= vars_sorted[comparison_idx + 1])
-        tril2cube_mask[idx] = comparisons[0] & comparisons[1] & comparisons[2]
-
-    for idx, perm in enumerate(perms):
-        tril2cube_tp.append((0,) + tuple([p + 1 for p in perm]))
-
-    mycc.tril2cube_map = tril2cube_map
-    mycc.tril2cube_mask = tril2cube_mask
-    mycc.tril2cube_tp = tril2cube_tp
-    return mycc
-
-def _unpack_24fold_(mycc, t4, t4_blk, i0, i1, j0, j1, k0, k1, l0, l1,
+def _unpack_t4_(mycc, t4, t4_blk, i0, i1, j0, j1, k0, k1, l0, l1,
                     blksize0=None, blksize1=None, blksize2=None, blksize3=None):
     if blksize0 is None: blksize0 = mycc.blksize
     if blksize1 is None: blksize1 = mycc.blksize
     if blksize2 is None: blksize2 = mycc.blksize
     if blksize3 is None: blksize3 = mycc.blksize
-    call_unpack_24fold_c(t4, t4_blk, mycc.tril2cube_map, mycc.tril2cube_mask, i0, i1, j0, j1, k0, k1, l0, l1,
-                        mycc.nocc, mycc.nvir, blksize0, blksize1, blksize2, blksize3)
+    unpack_t4_tril2block_(t4, t4_blk, mycc.tril2cube_map, mycc.tril2cube_mask, i0, i1, j0, j1, k0, k1, l0, l1,
+                        mycc.nocc, mycc.nmo - mycc.nocc, blksize0, blksize1, blksize2, blksize3)
 
-def _update_packed_24fold_(mycc, t4, t4_blk, i0, i1, j0, j1, k0, k1, l0, l1,
+def _accumulate_t4_(mycc, t4, t4_blk, i0, i1, j0, j1, k0, k1, l0, l1,
                     blksize0=None, blksize1=None, blksize2=None, blksize3=None, alpha=1.0, beta=0.0):
     if blksize0 is None: blksize0 = mycc.blksize
     if blksize1 is None: blksize1 = mycc.blksize
     if blksize2 is None: blksize2 = mycc.blksize
     if blksize3 is None: blksize3 = mycc.blksize
-    call_update_packed_24fold_c(t4, t4_blk, mycc.tril2cube_map, i0, i1, j0, j1, k0, k1, l0, l1, mycc.nocc, mycc.nvir,
-                                blksize0, blksize1, blksize2, blksize3, alpha=alpha, beta=beta)
-
-def symmetrize_t4_tril_(r):
-    """
-    Enforce permutation symmetry of r in the special cases:
-
-    - i = j < k <= l : symmetrize over (a, b)
-    - i < j = k < l : symmetrize over (b, c)
-    - i <= j < k = l : symmetrize over (c, d)
-
-    The cases where three or more indices equal are excluded
-    since those entries are set to zero elsewhere.
-    """
-    import itertools, numpy as np
-    nocc4 = r.shape[0]
-    nocc = int((24 * nocc4) ** (1 / 4))
-    if nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24 < nocc4: nocc += 1
-    if nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24 > nocc4: nocc -= 1
-    assert nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24 == nocc4, "the size of r might be incorrect"
-
-    quartets = np.array([(i, j, k, l) for i in range(nocc) for j in range(i, nocc)
-                                    for k in range(j, nocc) for l in range(k, nocc)])
-    assert quartets.shape[0] == nocc4, "the size of r might be incorrect"
-
-    case_1_idx = np.where((quartets[:, 0] == quartets[:, 1]) & (quartets[:, 1] < quartets[:, 2])
-                            & (quartets[:, 2] <= quartets[:, 3]))[0]
-    r[case_1_idx, ...] = (r[case_1_idx, ...] + r[case_1_idx, ...].transpose(0, 2, 1, 3, 4)) / 2
-
-    case_2_idx = np.where((quartets[:, 0] < quartets[:, 1]) & (quartets[:, 1] == quartets[:, 2])
-                            & (quartets[:, 2] < quartets[:, 3]))[0]
-    r[case_2_idx, ...] = (r[case_2_idx, ...] + r[case_2_idx, ...].transpose(0, 1, 3, 2, 4)) / 2
-
-    case_3_idx = np.where((quartets[:, 0] <= quartets[:, 1]) & (quartets[:, 1] < quartets[:, 2])
-                            & (quartets[:, 2] == quartets[:, 3]))[0]
-    r[case_3_idx, ...] = (r[case_3_idx, ...] + r[case_3_idx, ...].transpose(0, 1, 2, 4, 3)) / 2
-
-def purify_t4_tril_(r):
-    """
-    Set all entries with three or more of (i, j, k, l) or (a, b, c, d) equal to zero
-    """
-    import itertools, numpy as np
-    n = 4
-    nocc4 = r.shape[0]
-    nocc = int((24 * nocc4) ** (1 / 4))
-    if nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24 < nocc4: nocc += 1
-    if nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24 > nocc4: nocc -= 1
-    assert nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24 == nocc4, "the size of r might be incorrect"
-
-    quartets = np.array([(i, j, k, l) for i in range(nocc) for j in range(i, nocc)
-                            for k in range(j, nocc) for l in range(k, nocc)])
-    assert quartets.shape[0] == nocc4, "the size of r might be incorrect"
-    # ijk
-    diag_idx = np.where((quartets[:, 0] == quartets[:, 1]) & (quartets[:, 1] == quartets[:, 2]))[0]
-    r[diag_idx, ...] = 0.0
-    # jkl
-    diag_idx = np.where((quartets[:, 1] == quartets[:, 2]) & (quartets[:, 2] == quartets[:, 3]))[0]
-    r[diag_idx, ...] = 0.0
-
-    # Set all entries with a=b=c=d to zero
-    for perm in itertools.combinations(range(n), 3):
-        idxr = [slice(None)] * n
-        for p in perm:
-            idxr[p] = np.mgrid[:r.shape[p + 1]]
-        r[(slice(None), ) * 1 + tuple(idxr)] = 0.0
+    accumulate_t4_block2tril_(t4, t4_blk, mycc.tril2cube_map, i0, i1, j0, j1, k0, k1, l0, l1, mycc.nocc,
+                                mycc.nmo - mycc.nocc, blksize0, blksize1, blksize2, blksize3, alpha=alpha, beta=beta)
 
 def r2_add_t4_tril_(mycc, t4, r2):
-    nocc, nvir = mycc.nocc, mycc.nvir
+    '''Add the T4 contributions to r2. T4 amplitudes are stored in triangular form.'''
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     blksize = mycc.blksize
 
     t4_tmp = np.empty((blksize,) * 4 + (nvir,) * 4, dtype=np.float64)
@@ -246,15 +138,16 @@ def r2_add_t4_tril_(mycc, t4, r2):
                 bi = i1 - i0
                 for j0, j1 in lib.prange(0, nocc, blksize):
                     bj = j1 - j0
-                    _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, n0, n1, i0, i1, j0, j1)
-                    t4_symm_ip_(t4_tmp, blksize**4, nvir, "ccnn", 1.0, 0.0)
+                    _unpack_t4_(mycc, t4, t4_tmp, m0, m1, n0, n1, i0, i1, j0, j1)
+                    t4_spin_summation_inplace_c(t4_tmp, blksize**4, nvir, "P4_442", 1.0, 0.0)
                     einsum_(mycc, 'mnef,mnijefab->ijab', mycc.t1_eris[m0:m1, n0:n1, nocc:, nocc:],
                         t4_tmp[:bm, :bn, :bi, :bj], out=r2[i0:i1, j0:j1, :, :], alpha=0.25, beta=1.0)
     t4_tmp = None
 
 def r3_add_t4_tril_(mycc, t4, r3):
-    '''Add t4_tril contributions to r3'''
-    nocc, nvir = mycc.nocc, mycc.nvir
+    '''Add the T4 contributions to r3. T4 amplitudes are stored in triangular form.'''
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     blksize = mycc.blksize
     t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
@@ -267,8 +160,8 @@ def r3_add_t4_tril_(mycc, t4, r3):
                 bj = j1 - j0
                 for k0, k1 in lib.prange(0, nocc, blksize):
                     bk = k1 - k0
-                    _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, k0, k1)
-                    t4_symm_ip_(t4_tmp, blksize**4, nvir, "cnnn", 1.0, 0.0)
+                    _unpack_t4_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, k0, k1)
+                    t4_spin_summation_inplace_c(t4_tmp, blksize**4, nvir, "P4_201", 1.0, 0.0)
                     # R3: P9
                     einsum_(mycc, 'me,mijkeabc->ijkabc', t1_fock[m0:m1, nocc:], t4_tmp[:bm, :bi, :bj, :bk],
                             out=r3[i0:i1, j0:j1, k0:k1, ...], alpha=1.0 / 6.0, beta=1.0)
@@ -281,14 +174,15 @@ def r3_add_t4_tril_(mycc, t4, r3):
     t4_tmp = None
 
 def intermediates_t4_tril_(mycc, t2, t3, t4):
-    nocc, nvir = mycc.nocc, mycc.nvir
+    '''Intermediates for the T4 residual equation, with T4 amplitudes stored in triangular form.'''
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     blksize = mycc.blksize
     t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
-    # FIXME
     c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
     c_t3 = np.empty_like(t3)
-    t3_symm(t3, c_t3, nocc**3, nvir, "20-100-1", 1.0, 0.0)
+    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
 
     einsum_(mycc, 'me,mjab->abej', t1_fock[:nocc, nocc:], t2, out=mycc.W_vvvo_tc, alpha=-1.0, beta=1.0)
 
@@ -317,7 +211,7 @@ def intermediates_t4_tril_(mycc, t2, t3, t4):
 
     W_vvoooo = np.empty((nvir,) * 2 + (nocc,) * 4)
     einsum_(mycc, 'amef,ijkebf->abmijk', t1_eris[nocc:, :nocc, nocc:, nocc:], t3, out=W_vvoooo, alpha=1.0, beta=0.0)
-    # FIXME: Find an alternative way of calculating this term
+    # TODO: Derive an alternative expression for this term
     W_ovvo_c = t1_eris[:nocc, nocc:, nocc:, :nocc].copy()
     einsum_(mycc, 'nmfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo_c, alpha=1.0, beta=1.0)
     einsum_(mycc, 'mnfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo_c, alpha=-0.5, beta=1.0)
@@ -339,8 +233,8 @@ def intermediates_t4_tril_(mycc, t2, t3, t4):
                 bj = j1 - j0
                 for k0, k1 in lib.prange(0, nocc, blksize):
                     bk = k1 - k0
-                    _unpack_24fold_(mycc, t4, t4_tmp, n0, n1, i0, i1, j0, j1, k0, k1)
-                    t4_symm_ip_(t4_tmp, blksize**4, nvir, "cnnn", 1.0, 0.0)
+                    _unpack_t4_(mycc, t4, t4_tmp, n0, n1, i0, i1, j0, j1, k0, k1)
+                    t4_spin_summation_inplace_c(t4_tmp, blksize**4, nvir, "P4_201", 1.0, 0.0)
                     einsum_(mycc, 'mnef,nijkfabe->abmijk', t1_eris[:nocc, n0:n1, nocc:, nocc:],
                         t4_tmp[:bn, :bi, :bj, :bk], out=W_vvoooo[..., i0:i1, j0:j1, k0:k1], alpha=0.5, beta=1.0)
                     einsum_(mycc, 'inef,nijkfabc->abcejk', t1_eris[i0:i1, n0:n1, nocc:, nocc:],
@@ -355,13 +249,16 @@ def intermediates_t4_tril_(mycc, t2, t3, t4):
     return mycc
 
 def compute_r4_tril(mycc, t2, t3, t4):
+    '''Compute r4 with triangular-stored T4 amplitudes; r4 is returned in triangular form as well.
+    r4 will require a symmetry restoration step afterward.
+    '''
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
-    nocc, nvir, blksize = mycc.nocc, mycc.nvir, mycc.blksize
-    # FIXME
+    nocc, nmo, blksize = mycc.nocc, mycc.nmo, mycc.blksize
+    nvir = nmo - nocc
     c_t3 = np.empty_like(t3)
-    t3_symm(t3, c_t3, nocc**3, nvir, "20-100-1", 1.0, 0.0)
+    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
 
     # r4 = np.empty_like(t4)
     r4 = np.zeros_like(t4)
@@ -635,40 +532,40 @@ def compute_r4_tril(mycc, t2, t3, t4):
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
                     # R4: P2 (o4v5 * 4)
-                    _unpack_24fold_(mycc, t4, t4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
+                    _unpack_t4_(mycc, t4, t4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
                     einsum_(mycc, "ae,ijklebcd->ijklabcd", mycc.tf_vv, t4_tmp[:bi, :bj, :bk, :bl],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                    _unpack_24fold_(mycc, t4, t4_tmp, j0, j1, i0, i1, k0, k1, l0, l1)
+                    _unpack_t4_(mycc, t4, t4_tmp, j0, j1, i0, i1, k0, k1, l0, l1)
                     einsum_(mycc, "be,jikleacd->ijklabcd", mycc.tf_vv, t4_tmp[:bj, :bi, :bk, :bl],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                    _unpack_24fold_(mycc, t4, t4_tmp, k0, k1, i0, i1, j0, j1, l0, l1)
+                    _unpack_t4_(mycc, t4, t4_tmp, k0, k1, i0, i1, j0, j1, l0, l1)
                     einsum_(mycc, "ce,kijleabd->ijklabcd", mycc.tf_vv, t4_tmp[:bk, :bi, :bj, :bl],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                    _unpack_24fold_(mycc, t4, t4_tmp, l0, l1, i0, i1, j0, j1, k0, k1)
+                    _unpack_t4_(mycc, t4, t4_tmp, l0, l1, i0, i1, j0, j1, k0, k1)
                     einsum_(mycc, "de,lijkeabc->ijklabcd", mycc.tf_vv, t4_tmp[:bl, :bi, :bj, :bk],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
                     # R4: P8 (o4v6 * 6)
-                    _unpack_24fold_(mycc, t4, t4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
+                    _unpack_t4_(mycc, t4, t4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
                     einsum_(mycc, "abef,ijklefcd->ijklabcd", mycc.W_vvvv_tc, t4_tmp[:bi, :bj, :bk, :bl],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                    _unpack_24fold_(mycc, t4, t4_tmp, i0, i1, k0, k1, j0, j1, l0, l1)
+                    _unpack_t4_(mycc, t4, t4_tmp, i0, i1, k0, k1, j0, j1, l0, l1)
                     einsum_(mycc, "acef,ikjlefbd->ijklabcd", mycc.W_vvvv_tc, t4_tmp[:bi, :bk, :bj, :bl],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                    _unpack_24fold_(mycc, t4, t4_tmp, i0, i1, l0, l1, j0, j1, k0, k1)
+                    _unpack_t4_(mycc, t4, t4_tmp, i0, i1, l0, l1, j0, j1, k0, k1)
                     einsum_(mycc, "adef,iljkefbc->ijklabcd", mycc.W_vvvv_tc, t4_tmp[:bi, :bl, :bj, :bk],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                    _unpack_24fold_(mycc, t4, t4_tmp, j0, j1, k0, k1, i0, i1, l0, l1)
+                    _unpack_t4_(mycc, t4, t4_tmp, j0, j1, k0, k1, i0, i1, l0, l1)
                     einsum_(mycc, "bcef,jkilefad->ijklabcd", mycc.W_vvvv_tc, t4_tmp[:bj, :bk, :bi, :bl],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                    _unpack_24fold_(mycc, t4, t4_tmp, j0, j1, l0, l1, i0, i1, k0, k1)
+                    _unpack_t4_(mycc, t4, t4_tmp, j0, j1, l0, l1, i0, i1, k0, k1)
                     einsum_(mycc, "bdef,jlikefac->ijklabcd", mycc.W_vvvv_tc, t4_tmp[:bj, :bl, :bi, :bk],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                    _unpack_24fold_(mycc, t4, t4_tmp, k0, k1, l0, l1, i0, i1, j0, j1)
+                    _unpack_t4_(mycc, t4, t4_tmp, k0, k1, l0, l1, i0, i1, j0, j1)
                     einsum_(mycc, "cdef,klijefab->ijklabcd", mycc.W_vvvv_tc, t4_tmp[:bk, :bl, :bi, :bj],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
-                    _update_packed_24fold_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
+                    _accumulate_t4_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
         time2 = log.timer_debug1('t4: iter: P0, P1, P9 - P14, P2, P8 [%3d, %3d]:' % (l0, l1), *time2)
     t4_tmp = None
     r4_tmp = None
@@ -692,94 +589,94 @@ def compute_r4_tril(mycc, t2, t3, t4):
                         bm = m1 - m0
 
                         # R4: P3 (o5v4 * 4) & P4 (o5v5 * 4)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, j0, j1, k0, k1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, j0, j1, k0, k1, l0, l1)
                         einsum_(mycc, "mi,mjklabcd->ijklabcd", mycc.tf_oo[m0:m1, i0:i1], t4_tmp[:bm, :bj, :bk, :bl],
                             out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        t4_symm_ip_(t4_tmp, blksize**4, nvir, "cnnn", 1.0, 0.0)
+                        t4_spin_summation_inplace_c(t4_tmp, blksize**4, nvir, "P4_201", 1.0, 0.0)
                         einsum_(mycc, "maei,mjklebcd->ijklabcd", mycc.W_ovvo_tc[m0:m1, :, :, i0:i1],
                             t4_tmp[:bm, :bj, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=0.5, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, i0, i1, k0, k1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, i0, i1, k0, k1, l0, l1)
                         einsum_(mycc, "mj,miklbacd->ijklabcd", mycc.tf_oo[m0:m1, j0:j1], t4_tmp[:bm, :bi, :bk, :bl],
                             out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        t4_symm_ip_(t4_tmp, blksize**4, nvir, "cnnn", 1.0, 0.0)
+                        t4_spin_summation_inplace_c(t4_tmp, blksize**4, nvir, "P4_201", 1.0, 0.0)
                         einsum_(mycc, "mbej,mikleacd->ijklabcd", mycc.W_ovvo_tc[m0:m1, :, :, j0:j1],
                             t4_tmp[:bm, :bi, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=0.5, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, l0, l1)
                         einsum_(mycc, "mk,mijlcabd->ijklabcd", mycc.tf_oo[m0:m1, k0:k1], t4_tmp[:bm, :bi, :bj, :bl],
                             out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        t4_symm_ip_(t4_tmp, blksize**4, nvir, "cnnn", 1.0, 0.0)
+                        t4_spin_summation_inplace_c(t4_tmp, blksize**4, nvir, "P4_201", 1.0, 0.0)
                         einsum_(mycc, "mcek,mijleabd->ijklabcd", mycc.W_ovvo_tc[m0:m1, :, :, k0:k1],
                             t4_tmp[:bm, :bi, :bj, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=0.5, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, k0, k1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, k0, k1)
                         einsum_(mycc, "ml,mijkdabc->ijklabcd", mycc.tf_oo[m0:m1, l0:l1], t4_tmp[:bm, :bi, :bj, :bk],
                             out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        t4_symm_ip_(t4_tmp, blksize**4, nvir, "cnnn", 1.0, 0.0)
+                        t4_spin_summation_inplace_c(t4_tmp, blksize**4, nvir, "P4_201", 1.0, 0.0)
                         einsum_(mycc, "mdel,mijkeabc->ijklabcd", mycc.W_ovvo_tc[m0:m1, :, :, l0:l1],
                             t4_tmp[:bm, :bi, :bj, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=0.5, beta=1.0)
 
                         # R4: P5 (o5v5 * 12) & P6 (o5v5 * 12)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, j0, j1, k0, k1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, j0, j1, k0, k1, l0, l1)
                         einsum_(mycc, "maie,mjklbecd->ijklabcd", mycc.W_ovov_tc[m0:m1, :, i0:i1, :],
                             t4_tmp[:bm, :bj, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mbie,mjklaecd->ijklabcd", mycc.W_ovov_tc[m0:m1, :, i0:i1, :],
                             t4_tmp[:bm, :bj, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, k0, k1, j0, j1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, k0, k1, j0, j1, l0, l1)
                         einsum_(mycc, "maie,mkjlcebd->ijklabcd", mycc.W_ovov_tc[m0:m1, :, i0:i1, :],
                             t4_tmp[:bm, :bk, :bj, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mcie,mkjlaebd->ijklabcd", mycc.W_ovov_tc[m0:m1, :, i0:i1, :],
                             t4_tmp[:bm, :bk, :bj, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, l0, l1, j0, j1, k0, k1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, l0, l1, j0, j1, k0, k1)
                         einsum_(mycc, "maie,mljkdebc->ijklabcd", mycc.W_ovov_tc[m0:m1, :, i0:i1, :],
                             t4_tmp[:bm, :bl, :bj, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mdie,mljkaebc->ijklabcd", mycc.W_ovov_tc[m0:m1, :, i0:i1, :],
                             t4_tmp[:bm, :bl, :bj, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, i0, i1, k0, k1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, i0, i1, k0, k1, l0, l1)
                         einsum_(mycc, "mbje,miklaecd->ijklabcd", mycc.W_ovov_tc[m0:m1, :, j0:j1, :],
                             t4_tmp[:bm, :bi, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "maje,miklbecd->ijklabcd", mycc.W_ovov_tc[m0:m1, :, j0:j1, :],
                             t4_tmp[:bm, :bi, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, l0, l1)
                         einsum_(mycc, "mcke,mijlaebd->ijklabcd", mycc.W_ovov_tc[m0:m1, :, k0:k1, :],
                             t4_tmp[:bm, :bi, :bj, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "make,mijlcebd->ijklabcd", mycc.W_ovov_tc[m0:m1, :, k0:k1, :],
                             t4_tmp[:bm, :bi, :bj, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, k0, k1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, k0, k1)
                         einsum_(mycc, "mdle,mijkaebc->ijklabcd", mycc.W_ovov_tc[m0:m1, :, l0:l1, :],
                             t4_tmp[:bm, :bi, :bj, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "male,mijkdebc->ijklabcd", mycc.W_ovov_tc[m0:m1, :, l0:l1, :],
                             t4_tmp[:bm, :bi, :bj, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, k0, k1, i0, i1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, k0, k1, i0, i1, l0, l1)
                         einsum_(mycc, "mbje,mkilcead->ijklabcd", mycc.W_ovov_tc[m0:m1, :, j0:j1, :],
                             t4_tmp[:bm, :bk, :bi, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mcje,mkilbead->ijklabcd", mycc.W_ovov_tc[m0:m1, :, j0:j1, :],
                             t4_tmp[:bm, :bk, :bi, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, l0, l1, i0, i1, k0, k1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, l0, l1, i0, i1, k0, k1)
                         einsum_(mycc, "mbje,mlikdeac->ijklabcd", mycc.W_ovov_tc[m0:m1, :, j0:j1, :],
                             t4_tmp[:bm, :bl, :bi, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mdje,mlikbeac->ijklabcd", mycc.W_ovov_tc[m0:m1, :, j0:j1, :],
                             t4_tmp[:bm, :bl, :bi, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, j0, j1, i0, i1, l0, l1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, j0, j1, i0, i1, l0, l1)
                         einsum_(mycc, "mcke,mjilbead->ijklabcd", mycc.W_ovov_tc[m0:m1, :, k0:k1, :],
                             t4_tmp[:bm, :bj, :bi, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mbke,mjilcead->ijklabcd", mycc.W_ovov_tc[m0:m1, :, k0:k1, :],
                             t4_tmp[:bm, :bj, :bi, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, j0, j1, i0, i1, k0, k1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, j0, j1, i0, i1, k0, k1)
                         einsum_(mycc, "mdle,mjikbeac->ijklabcd", mycc.W_ovov_tc[m0:m1, :, l0:l1, :],
                             t4_tmp[:bm, :bj, :bi, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mble,mjikdeac->ijklabcd", mycc.W_ovov_tc[m0:m1, :, l0:l1, :],
                             t4_tmp[:bm, :bj, :bi, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, l0, l1, i0, i1, j0, j1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, l0, l1, i0, i1, j0, j1)
                         einsum_(mycc, "mcke,mlijdeab->ijklabcd", mycc.W_ovov_tc[m0:m1, :, k0:k1, :],
                             t4_tmp[:bm, :bl, :bi, :bj], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mdke,mlijceab->ijklabcd", mycc.W_ovov_tc[m0:m1, :, k0:k1, :],
                             t4_tmp[:bm, :bl, :bi, :bj], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
-                        _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, k0, k1, i0, i1, j0, j1)
+                        _unpack_t4_(mycc, t4, t4_tmp, m0, m1, k0, k1, i0, i1, j0, j1)
                         einsum_(mycc, "mdle,mkijceab->ijklabcd", mycc.W_ovov_tc[m0:m1, :, l0:l1, :],
                             t4_tmp[:bm, :bk, :bi, :bj], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                         einsum_(mycc, "mcle,mkijdeab->ijklabcd", mycc.W_ovov_tc[m0:m1, :, l0:l1, :],
                             t4_tmp[:bm, :bk, :bi, :bj], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
 
-                    _update_packed_24fold_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1, beta=1.0)
+                    _accumulate_t4_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1, beta=1.0)
         time2 = log.timer_debug1('t4: iter: P3, P4, P5, P6 [%3d, %3d]:'%(l0, l1), *time2)
     t4_tmp = None
     r4_tmp = None
@@ -804,37 +701,38 @@ def compute_r4_tril(mycc, t2, t3, t4):
                             bn = n1 - n0
 
                             # R4: P7 (o6v4 * 6)
-                            _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, n0, n1, k0, k1, l0, l1)
+                            _unpack_t4_(mycc, t4, t4_tmp, m0, m1, n0, n1, k0, k1, l0, l1)
                             einsum_(mycc, "mnij,mnklabcd->ijklabcd", mycc.W_oooo[m0:m1, n0:n1, i0:i1, j0:j1],
                                 t4_tmp[:bm, :bn, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                            _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, n0, n1, j0, j1, l0, l1)
+                            _unpack_t4_(mycc, t4, t4_tmp, m0, m1, n0, n1, j0, j1, l0, l1)
                             einsum_(mycc, "mnik,mnjlacbd->ijklabcd", mycc.W_oooo[m0:m1, n0:n1, i0:i1, k0:k1],
                                 t4_tmp[:bm, :bn, :bj, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                            _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, n0, n1, j0, j1, k0, k1)
+                            _unpack_t4_(mycc, t4, t4_tmp, m0, m1, n0, n1, j0, j1, k0, k1)
                             einsum_(mycc, "mnil,mnjkadbc->ijklabcd", mycc.W_oooo[m0:m1, n0:n1, i0:i1, l0:l1],
                                 t4_tmp[:bm, :bn, :bj, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                            _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, n0, n1, i0, i1, l0, l1)
+                            _unpack_t4_(mycc, t4, t4_tmp, m0, m1, n0, n1, i0, i1, l0, l1)
                             einsum_(mycc, "mnjk,mnilbcad->ijklabcd", mycc.W_oooo[m0:m1, n0:n1, j0:j1, k0:k1],
                                 t4_tmp[:bm, :bn, :bi, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                            _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, n0, n1, i0, i1, k0, k1)
+                            _unpack_t4_(mycc, t4, t4_tmp, m0, m1, n0, n1, i0, i1, k0, k1)
                             einsum_(mycc, "mnjl,mnikbdac->ijklabcd", mycc.W_oooo[m0:m1, n0:n1, j0:j1, l0:l1],
                                 t4_tmp[:bm, :bn, :bi, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
-                            _unpack_24fold_(mycc, t4, t4_tmp, m0, m1, n0, n1, i0, i1, j0, j1)
+                            _unpack_t4_(mycc, t4, t4_tmp, m0, m1, n0, n1, i0, i1, j0, j1)
                             einsum_(mycc, "mnkl,mnijcdab->ijklabcd", mycc.W_oooo[m0:m1, n0:n1, k0:k1, l0:l1],
                                 t4_tmp[:bm, :bn, :bi, :bj], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
-                    _update_packed_24fold_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1, beta=1.0)
+                    _accumulate_t4_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1, beta=1.0)
         time2 = log.timer_debug1('t4: iter: P7 [%3d, %3d]:'%(l0, l1), *time2)
     t4_tmp = None
     r4_tmp = None
     time1 = log.timer_debug1('t4: P7', *time1)
     return r4
 
-def r4_tril_divide_e_(mycc, r4, eris):
-    nocc, nvir = mycc.nocc, mycc.nvir
+def r4_tril_divide_e_(mycc, r4, mo_energy):
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     blksize = mycc.blksize
 
-    eia = eris.mo_energy[: nocc, None] - eris.mo_energy[None, nocc :] - mycc.level_shift
+    eia = mo_energy[: nocc, None] - mo_energy[None, nocc :] - mycc.level_shift
     eijklabcd_blk = np.empty((blksize,) * 4 + (nvir,) * 4, dtype=r4.dtype)
     r4_tmp = np.empty((blksize,) * 4 + (nvir,) * 4, dtype=r4.dtype)
     for l0, l1 in lib.prange(0, nocc, blksize):
@@ -849,20 +747,23 @@ def r4_tril_divide_e_(mycc, r4, eris):
                                 + eia[None, j0:j1, None, None, None, :, None, None]
                                 + eia[None, None, k0:k1, None, None, None, :, None]
                                 + eia[None, None, None, l0:l1, None, None, None, :])
-                    _unpack_24fold_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
+                    _unpack_t4_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
                     r4_tmp[:bi, :bj, :bk, :bl] /= eijklabcd_blk
-                    _update_packed_24fold_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
+                    _accumulate_t4_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
     eijklabcd_blk = None
     r4_tmp = None
 
 def update_amps_rccsdtq_tril_(mycc, tamps, eris):
+    '''Update RCCSDTQ amplitudes in place, with T4 amplitudes stored in triangular form.'''
+    assert (isinstance(eris, _PhysicistsERIs))
     time0 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
-    nocc, nvir = mycc.nocc, mycc.nvir
-
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     t1, t2, t3, t4 = tamps
     nocc4 = t4.shape[0]
+    mo_energy = eris.mo_energy.copy()
 
     # t1, t2
     update_t1_fock_eris_(mycc, t1, eris)
@@ -877,7 +778,7 @@ def update_amps_rccsdtq_tril_(mycc, tamps, eris):
     r2 += r2.transpose(1, 0, 3, 2)
     time1 = log.timer_debug1('t1t2: symmetrize r2', *time1)
     # divide by eijkabc
-    r1r2_divide_e_(mycc, r1, r2, eris)
+    r1r2_divide_e_(mycc, r1, r2, mo_energy)
     time1 = log.timer_debug1('t1t2: divide r1 & r2 by eia & eijab', *time1)
 
     res_norm = [np.linalg.norm(r1), np.linalg.norm(r2)]
@@ -895,12 +796,12 @@ def update_amps_rccsdtq_tril_(mycc, tamps, eris):
     r3_add_t4_tril_(mycc, t4, r3)
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrization
-    t3_p_sum_ip_(r3, nocc, nvir, 1.0, 0.0)
-    t3_symm_ip_(r3, nocc**3, nvir, "111111", -1.0 / 6.0, 1.0)
+    t3_perm_symmetrize_inplace_(r3, nocc, nvir, 1.0, 0.0)
+    t3_spin_summation_inplace_(r3, nocc**3, nvir, "P3_full", -1.0 / 6.0, 1.0)
     purify_tamps_(r3)
     time1 = log.timer_debug1('t3: symmetrize r3', *time1)
     # divide by eijkabc
-    r3_divide_e_(mycc, r3, eris)
+    r3_divide_e_(mycc, r3, mo_energy)
     time1 = log.timer_debug1('t3: divide r3 by eijkabc', *time1)
 
     res_norm.append(np.linalg.norm(r3))
@@ -917,12 +818,12 @@ def update_amps_rccsdtq_tril_(mycc, tamps, eris):
     r4 = compute_r4_tril(mycc, t2, t3, t4)
     time1 = log.timer_debug1('t4: compute r4', *time1)
     # symmetrize r4
-    t4_symm_ip_(r4, nocc4, nvir, "11111111", -1.0 / 24.0, 1.0)
-    symmetrize_t4_tril_(r4)
-    purify_t4_tril_(r4)
+    symmetrize_tamps_tril_(r4, nocc)
+    t4_spin_summation_inplace_c(r4, nocc4, nvir, "P4_full", -1.0 / 24.0, 1.0)
+    purify_tamps_tril_(r4, nocc)
     time1 = log.timer_debug1('t4: symmetrize r4', *time1)
     # divide by eijkabc
-    r4_tril_divide_e_(mycc, r4, eris)
+    r4_tril_divide_e_(mycc, r4, mo_energy)
     time1 = log.timer_debug1('t4: divide r4 by eijklabcd', *time1)
 
     res_norm.append(np.linalg.norm(r4))
@@ -934,13 +835,88 @@ def update_amps_rccsdtq_tril_(mycc, tamps, eris):
     time0 = log.timer_debug1('t4 total', *time0)
     return res_norm
 
+def memory_estimate_log_rccsdtq(mycc):
+    '''Estimate the memory cost (in MB).'''
+    log = logger.Logger(mycc.stdout, mycc.verbose)
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
+
+    log.info('Approximate memory usage estimate')
+    if mycc.do_tril_maxT:
+        nocc4 = nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24
+        t4_memory = nocc4 * nvir**4 * 8 / 1024**2
+    else:
+        t4_memory = nocc**4 * nvir**4 * 8 / 1024**2
+    log.info('T4 memory               %9.5e MB', t4_memory)
+    log.info('R4 memory               %9.5e MB', t4_memory)
+    if not mycc.do_tril_maxT:
+        log.info('Symmetrized T4 memory   %9.5e MB', t4_memory)
+    if mycc.einsum_backend in ['numpy', 'pyscf']:
+        log.info("T4 einsum buffer        %9.5e MB", t4_memory)
+    eris_memory = nmo**4 * 8 / 1024**2
+    log.info('ERIs memory             %9.5e MB', eris_memory)
+    log.info('T1-ERIs memory          %9.5e MB', eris_memory)
+    intermediates_memory = nocc**2 * nvir**4 * 8 / 1024**2 * 2
+    log.info('Intermediates memory    %9.5e MB', intermediates_memory)
+    if mycc.do_tril_maxT:
+        blk_memory = mycc.blksize**4 * nvir**4 * 8 / 1024**2 * 2
+        log.info("Block workspace         %9.5e MB", blk_memory)
+    if mycc.incore_complete:
+        if mycc.do_diis_maxT:
+            diis_memory = (nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 6 * nvir**4 * 8 / 1024**2
+                            * mycc.diis_space * 2)
+        else:
+            diis_memory = nocc * (nocc + 1) * (nocc + 2) // 6 * nvir**3 * 8 / 1024**2 * mycc.diis_space * 2
+        log.info('DIIS memory             %9.5e MB', diis_memory)
+    else:
+        diis_memory = 0.0
+    if mycc.do_tril_maxT:
+        total_memory = 2 * t4_memory + 3 * eris_memory + diis_memory + blk_memory
+    else:
+        total_memory = 3 * t4_memory + 3 * eris_memory + diis_memory
+    log.info('Total estimated memory  %9.5e MB', total_memory)
+    max_memory = mycc.max_memory - lib.current_memory()[0]
+    if total_memory > max_memory:
+        logger.warn(mycc, 'Estimated memory usage exceeds the allowed limit for %s', mycc.__class__.__name__)
+        logger.warn(mycc, 'The calculation may run out of memory')
+        if mycc.incore_complete:
+            if mycc.do_diis_maxT:
+                logger.warn(mycc, 'Consider setting `do_diis_maxT = False` to reduce memory usage')
+            else:
+                logger.warn(mycc, 'Consider setting `incore_complete = False` to reduce memory usage')
+        if not mycc.do_tril_maxT:
+            logger.warn(mycc, 'Consider using %s in `pyscf.cc.rccsdtq` which stores the triangular T amplitudes',
+                        mycc.__class__.__name__)
+        else:
+            logger.warn(mycc, 'Consider reducing `blksize` to reduce memory usage')
+    return mycc
+
+def dump_chk(mycc, tamps=None, frozen=None, mo_coeff=None, mo_occ=None):
+    if not mycc.chkfile:
+        return mycc
+    if tamps is None: tamps = mycc.tamps
+    if frozen is None: frozen = mycc.frozen
+    # "None" cannot be serialized by the chkfile module
+    if frozen is None:
+        frozen = 0
+    cc_chk = {'e_corr': mycc.e_corr, 'tamps': tamps, 'frozen': frozen}
+    if mo_coeff is not None: cc_chk['mo_coeff'] = mo_coeff
+    if mo_occ is not None: cc_chk['mo_occ'] = mo_occ
+    if mycc._nmo is not None: cc_chk['_nmo'] = mycc._nmo
+    if mycc._nocc is not None: cc_chk['_nocc'] = mycc._nocc
+    if mycc.do_tril_maxT:
+        lib.chkfile.save(mycc.chkfile, 'rccsdtq', cc_chk)
+    else:
+        lib.chkfile.save(mycc.chkfile, 'rccsdtq_highm', cc_chk)
+
 
 class RCCSDTQ(rccsdt.RCCSDT):
 
     conv_tol = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_conv_tol', 1e-7)
-    conv_tol_normt = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_conv_tol_normt', 1e-5)
+    conv_tol_normt = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_conv_tol_normt', 1e-6)
     cc_order = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_cc_order', 4)
     tamps = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_tamps', [None, None, None, None])
+    unique_tamps_map = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_unique_tamps_map', None)
     do_tril_maxT = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_do_tril_maxT', True)
     do_diis_maxT = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_do_diis_maxT', True)
     blksize = getattr(__config__, 'cc_rccsdtq_RCCSDTQ_blksize', 4)
@@ -956,7 +932,9 @@ class RCCSDTQ(rccsdt.RCCSDT):
     def __init__(self, mf, frozen=None, mo_coeff=None, mo_occ=None):
         rccsdt.RCCSDT.__init__(self, mf, frozen, mo_coeff, mo_occ)
 
+    memory_estimate_log = memory_estimate_log_rccsdtq
     update_amps_ = update_amps_rccsdtq_tril_
+    dump_chk = dump_chk
 
     def kernel(self, tamps=None, eris=None):
         return self.ccsdtq(tamps, eris)
@@ -967,6 +945,8 @@ class RCCSDTQ(rccsdt.RCCSDT):
         assert (self.mo_coeff is not None)
         assert (self.mo_occ is not None)
 
+        assert self.mo_coeff.dtype == np.float64, "`mo_coeff` must be float64"
+
         if self.verbose >= logger.WARN:
             self.check_sanity()
         self.dump_flags()
@@ -976,80 +956,16 @@ class RCCSDTQ(rccsdt.RCCSDT):
         if eris is None:
             eris = self.ao2mo(self.mo_coeff)
 
-        nocc = self.nocc = eris.nocc
-        nmo = self.nmo = eris.fock.shape[0]
-        nvir = self.nvir = nmo - nocc
-        log.info('nocc %5d    nvir %5d    nmo %5d' % (nocc, nvir, nmo))
+        nocc = eris.nocc
 
         if self.do_tril_maxT:
-            # setup the map for (un)packing
-            setup_tril2cube_t4_(self)
+            self.setup_tril2cube_()
 
-            # setup the blksize for (un)packing and contraction
             self.blksize = min(self.blksize, (nocc + 1) // 2)
             log.info('blksize %2d' % (self.blksize))
 
-        log.info('Approximate memory usage estimate')
-        if self.do_tril_maxT:
-            nocc4 = nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24
-            t4_memory = nocc4 * nvir**4 * 8 / 1024**2
-        else:
-            t4_memory = nocc**4 * nvir**4 * 8 / 1024**2
-        log.info('T4 memory               %9.5e MB' % (t4_memory))
-        log.info('R4 memory               %9.5e MB' % (t4_memory))
-        if not self.do_tril_maxT:
-            log.info('Spin-summed T4 memory   %9.5e MB' % (t4_memory))
-        eris_memory = nmo**4 * 8 / 1024**2
-        log.info('eris memory             %9.5e MB' % (eris_memory))
-        log.info('t1_eris memory          %9.5e MB' % (eris_memory))
-        intermediates_memory = nocc**2 * nvir**4 * 8 / 1024**2 * 2
-        log.info('intermediates memory    %9.5e MB' % (intermediates_memory))
-        if self.do_diis_maxT:
-            diis_memory = (nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 6 * nvir**4 * 8 / 1024**2
-                            * self.diis_space * 2)
-        else:
-            diis_memory = nocc * (nocc + 1) * (nocc + 2) // 6 * nvir**3 * 8 / 1024**2 * self.diis_space * 2
-        log.info('diis memory             %9.5e MB' % (diis_memory))
-        if self.do_tril_maxT:
-            blk_memory = self.blksize**4 * nvir**4 * 8 / 1024**2 * 2
-            log.info('blk workspace           %9.5e MB' % (blk_memory))
-        if self.do_tril_maxT:
-            total_memory = 2 * t4_memory + 3 * eris_memory + diis_memory + blk_memory
-        else:
-            total_memory = 3 * t4_memory + 3 * eris_memory + diis_memory
-        log.info('total estimate memory   %9.5e MB' % (total_memory))
-        max_memory = self.max_memory - lib.current_memory()[0]
-        if total_memory > max_memory:
-            logger.warn(self, 'There may not be enough memory for the %s calculation' % self.__class__.__name__)
-            # change blksize
-
-        # map of unique part of t-amplitudes
-        self.unique_tamps_map = []
-        # t1
-        self.unique_tamps_map.append([[slice(None)]])
-        # t2
-        self.unique_tamps_map.append([np.tril_indices(nocc), np.diag_indices(nocc)])
-        # t3
-        i, j, k = np.meshgrid(np.arange(nocc), np.arange(nocc), np.arange(nocc), indexing='ij')
-        mask_all = (i <= j) & (j <= k)
-        mask_three = (i == j) & (j == k)
-        mask_two = ((i == j) | (j == k) | (i == k)) & (~mask_three) & mask_all
-        self.unique_tamps_map.append([np.where(mask_all), np.where(mask_two), np.where(mask_three)])
-        # t4
-        if self.do_diis_maxT:
-            if self.do_tril_maxT:
-                self.unique_tamps_map.append([[slice(None)]])
-            else:
-                i, j, k, l = np.meshgrid(np.arange(nocc), np.arange(nocc), np.arange(nocc),
-                                        np.arange(nocc), indexing='ij')
-                mask_all = (i <= j) & (j <= k) & (k <= l)
-                mask_four = (i == j) & (j == k) & (k == l)
-                mask_three = (((i == j) & (j == k) & (k < l)) | ((i < j) & (j == k) & (k == l))) & mask_all
-                mask_three_2 = ((i == j) & (j < k) & (k == l)) & mask_all
-                mask_two = (((i == j) & (j < k) & (k < l)) | ((i < j) & (j == k) & (k < l))
-                            | ((i < j) & (j < k) & (k == l))) & mask_all
-                self.unique_tamps_map.append([np.where(mask_all), np.where(mask_two), np.where(mask_three),
-                                        np.where(mask_three_2), np.where(mask_four)])
+        self.memory_estimate_log()
+        self.build_unique_tamps_map_()
 
         self.converged, self.e_corr, self.tamps = \
                 kernel(self, eris, tamps, max_cycle=self.max_cycle,
@@ -1061,7 +977,7 @@ class RCCSDTQ(rccsdt.RCCSDT):
 
 if __name__ == "__main__":
 
-    from pyscf import gto, scf, df
+    from pyscf import gto, scf
 
     mol = gto.M(atom="N 0 0 0; N 0 0 1.1", basis="sto3g", verbose=3)
     mf = scf.RHF(mol)
@@ -1073,50 +989,39 @@ if __name__ == "__main__":
     ref_ecorr = -0.157579406507473
     frozen = 0
     mycc = RCCSDTQ(mf, frozen=frozen)
-    mycc.set_einsum_backend('pytblis')
+    mycc.set_einsum_backend('numpy')
     mycc.conv_tol = 1e-12
     mycc.conv_tol_normt = 1e-10
     mycc.max_cycle = 100
     mycc.verbose = 5
     mycc.do_diis_maxT = True
-    ecorr, tamps = mycc.kernel()
-    print("My E_corr: % .10f    Ref E_corr: % .10f    Diff: % .10e"%(ecorr, ref_ecorr, ecorr - ref_ecorr))
+    mycc.incore_complete = True
+    mycc.kernel()
+    print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc.e_corr, ref_ecorr, mycc.e_corr - ref_ecorr))
+    print('\n' * 5)
+
+    # comparison with the high-memory version
+    from rccsdtq_highm import RCCSDTQ as RCCSDTQhm
+    mycc2 = RCCSDTQhm(mf, frozen=frozen)
+    mycc2.set_einsum_backend('numpy')
+    mycc2.conv_tol = 1e-12
+    mycc2.conv_tol_normt = 1e-10
+    mycc2.max_cycle = 100
+    mycc2.verbose = 5
+    mycc2.do_diis_maxT = True
+    mycc2.incore_complete = True
+    mycc2.kernel()
+    print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc2.e_corr, ref_ecorr, mycc2.e_corr - ref_ecorr))
     print()
 
-    # mol = gto.M(atom="N 0 0 0; N 0 0 1.1", basis="631g", verbose=3)
-    # mf = scf.RHF(mol)
-    # mf.level_shift = 0.0
-    # mf.conv_tol = 1e-14
-    # mf.max_cycle = 1000
-    # mf.kernel()
-    # print()
-    # ref_ecorr = -0.2375471406644931
-    # frozen = 0
-    # mycc = RCCSDTQ(mf, frozen=frozen)
-    # mycc.conv_tol = 1e-12
-    # mycc.conv_tol_normt = 1e-10
-    # mycc.max_cycle = 100
-    # mycc.verbose = 5
-    # mycc.do_diis_maxT = True
-    # ecorr, tamps = mycc.kernel()
-    # print("My E_corr: % .10f    Ref E_corr: % .10f    Diff: % .10e"%(ecorr, ref_ecorr, ecorr - ref_ecorr))
-    # print()
+    t4_tril = mycc.t4
+    t4_full = mycc2.t4
+    t4_tril_from_t4_full = mycc2.tamp_full2tril(t4_full)
+    t4_full_from_t4_tril = mycc.tamp_tril2full(t4_tril)
 
-    # mol = gto.M(atom="N 0 0 0; N 0 0 1.1", basis="ccpvdz", verbose=3)
-    # mf = scf.RHF(mol)
-    # mf.level_shift = 0.0
-    # mf.conv_tol = 1e-14
-    # mf.max_cycle = 1000
-    # mf.kernel()
-    # print()
-    # ref_ecorr = -0.3271440696774139
-    # frozen = 0
-    # mycc = RCCSDTQ(mf, frozen=frozen)
-    # mycc.conv_tol = 1e-12
-    # mycc.conv_tol_normt = 1e-10
-    # mycc.max_cycle = 100
-    # mycc.verbose = 5
-    # mycc.do_diis_maxT = True
-    # ecorr, tamps = mycc.kernel()
-    # print("My E_corr: % .10f    Ref E_corr: % .10f    Diff: % .10e"%(ecorr, ref_ecorr, ecorr - ref_ecorr))
-    # print()
+    print('energy difference                          % .10e' % (mycc.e_tot - mycc2.e_tot))
+    print('max(abs(t1 difference))                    % .10e' % np.max(np.abs(mycc.t1 - mycc2.t1)))
+    print('max(abs(t2 difference))                    % .10e' % np.max(np.abs(mycc.t2 - mycc2.t2)))
+    print('max(abs(t3 difference))                    % .10e' % np.max(np.abs(mycc.t3 - mycc2.t3)))
+    print('max(abs(t4_tril - t4_tril_from_t4_full))   % .10e' % np.max(np.abs(t4_tril - t4_tril_from_t4_full)))
+    print('max(abs(t4_full - t4_full_from_t4_tril))   % .10e' % np.max(np.abs(t4_full - t4_full_from_t4_tril)))

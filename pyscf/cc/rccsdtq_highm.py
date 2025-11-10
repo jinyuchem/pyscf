@@ -17,10 +17,12 @@
 #
 
 '''
-RHF-CCSDTQ with full T4 amplitudes stored
+RHF-CCSDTQ with full T4 amplitudes stored.
+T1-dressed formalism is used, where the T1 amplitudes are absorbed into the Fock matrix and ERIs.
 
 Ref:
-JCP 142, 064108 (2015); DOI:10.1063/1.4907278
+J. Chem. Phys. 142, 064108 (2015); DOI:10.1063/1.4907278
+Chem. Phys. Lett. 228, 233 (1994); DOI:10.1016/0009-2614(94)00898-1
 '''
 
 import numpy as np
@@ -30,23 +32,19 @@ from pyscf import lib
 from pyscf.lib import logger
 from pyscf.mp.mp2 import get_nocc, get_nmo, get_frozen_mask, get_e_hf, _mo_without_core
 from pyscf.cc import _ccsd, rccsdtq
-from pyscf.cc.rccsdt import (einsum_, _make_eris_incore_rccsdt, _make_df_eris_incore_rccsdt, t3_symm_ip_,
-                            update_t1_fock_eris_, init_amps, energy, intermediates_t1t2_, compute_r1r2, r1r2_divide_e_,
-                            intermediates_t3_, run_diis, amplitudes_to_vector_rhf, vector_to_amplitudes_rhf,
-                            ao2mo_rccsdt, _finalize, kernel)
-from pyscf.cc.rccsdt_highm import (t3_symm, t3_p_sum_ip_, purify_tamps_, r1r2_add_t3_, intermediates_t3_add_t3_,
-                                    compute_r3, r3_divide_e_)
-from pyscf.cc.rccsdtq import t4_symm_ip_, t4_add_
+from pyscf.cc.rccsdt import (einsum_, t3_spin_summation_inplace_, update_t1_fock_eris_, intermediates_t1t2_,
+                            compute_r1r2, r1r2_divide_e_, intermediates_t3_, _PhysicistsERIs)
+from pyscf.cc.rccsdt_highm import (t3_spin_summation, t3_perm_symmetrize_inplace_, purify_tamps_, r1r2_add_t3_,
+                                    intermediates_t3_add_t3_, compute_r3, r3_divide_e_)
+from pyscf.cc.rccsdtq import t4_spin_summation_inplace_c, t4_add_
 from pyscf import __config__
 
 
-def t4_symm(A, B, nocc4, nvir, pattern, alpha=1.0, beta=0.0):
+def t4_spin_summation(A, B, nocc4, nvir, pattern, alpha=1.0, beta=0.0):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
     assert B.dtype == np.float64 and B.flags['C_CONTIGUOUS'], "B must be a contiguous float64 array"
-
     pattern_c = pattern.encode('utf-8')
-
-    _ccsd.libcc.t4_symm_c(
+    _ccsd.libccsdt.t4_spin_summation_c(
         A.ctypes.data_as(ctypes.c_void_p),
         B.ctypes.data_as(ctypes.c_void_p),
         ctypes.c_int64(nocc4),
@@ -57,10 +55,9 @@ def t4_symm(A, B, nocc4, nvir, pattern, alpha=1.0, beta=0.0):
     )
     return B
 
-def t4_p_sum_ip_(A, nocc, nvir, alpha=1.0, beta=0.0):
+def t4_perm_symmetrize_inplace_(A, nocc, nvir, alpha=1.0, beta=0.0):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
-
-    _ccsd.libcc.t4_p_sum_ip_c(
+    _ccsd.libccsdt.t4_perm_symmetrize_inplace_c(
         A.ctypes.data_as(ctypes.c_void_p),
         ctypes.c_int64(nocc),
         ctypes.c_int64(nvir),
@@ -72,9 +69,7 @@ def t4_p_sum_ip_(A, nocc, nvir, alpha=1.0, beta=0.0):
 def eijkl_division_(A, eia, nocc, nvir):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
     assert eia.dtype == np.float64 and eia.flags['C_CONTIGUOUS'], "eia must be a contiguous float64 array"
-
-    drv = _ccsd.libcc.eijkl_division_c
-    drv(
+    _ccsd.libccsdt.eijkl_division_c(
         A.ctypes.data_as(ctypes.c_void_p),
         eia.ctypes.data_as(ctypes.c_void_p),
         ctypes.c_int64(nocc),
@@ -82,20 +77,22 @@ def eijkl_division_(A, eia, nocc, nvir):
     )
 
 def r2_add_t4_(mycc, t4, r2):
-    nocc, nvir = mycc.nocc, mycc.nvir
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     cc_t4 = np.empty_like(t4)
-    t4_symm(t4, cc_t4, nocc**4, nvir, "ccnn", 1.0, 0.0)
+    t4_spin_summation(t4, cc_t4, nocc**4, nvir, "P4_442", 1.0, 0.0)
     einsum_(mycc, 'mnef,mnijefab->ijab', mycc.t1_eris[:nocc, :nocc, nocc:, nocc:], cc_t4, out=r2, alpha=0.25, beta=1.0)
     cc_t4 = None
 
 def r3_add_t4_(mycc, t4, r3):
-    '''Add t4 contribution to r3'''
-    nocc, nvir = mycc.nocc, mycc.nvir
+    '''Add the T4 contributions to r3. T4 amplitudes are stored in full form.'''
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
-    # FIXME
+    # TODO: Avoid recomputing c_t4; cache or reuse the result
     c_t4 = np.empty_like(t4)
-    t4_symm(t4, c_t4, nocc**4, nvir, "cnnn", 1.0, 0.0)
+    t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
     # R3: P9
     einsum_(mycc, 'me,mijkeabc->ijkabc', t1_fock[:nocc, nocc:], c_t4, out=r3, alpha=1.0 / 6.0, beta=1.0)
     # R3: P10
@@ -105,15 +102,17 @@ def r3_add_t4_(mycc, t4, r3):
     c_t4 = None
 
 def intermediates_t4_(mycc, t2, t3, t4):
-    nocc, nvir = mycc.nocc, mycc.nvir
+    '''Intermediates for the T4 residual equation, with T4 amplitudes stored in full form.'''
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
-    # FIXME
     c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
     c_t3 = np.empty_like(t3)
-    t3_symm(t3, c_t3, nocc**3, nvir, "20-100-1", 1.0, 0.0)
+    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
+    # TODO: Avoid recomputing c_t3; cache or reuse the result
     c_t4 = np.empty_like(t4)
-    t4_symm(t4, c_t4, nocc**4, nvir, "cnnn", 1.0, 0.0)
+    t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
 
     einsum_(mycc, 'me,mjab->abej', t1_fock[:nocc, nocc:], t2, out=mycc.W_vvvo_tc, alpha=-1.0, beta=1.0)
 
@@ -138,7 +137,7 @@ def intermediates_t4_(mycc, t2, t3, t4):
 
     W_vvoooo = np.empty((nvir,) * 2 + (nocc,) * 4, dtype=t2.dtype)
     einsum_(mycc, 'amef,ijkebf->abmijk', t1_eris[nocc:, :nocc, nocc:, nocc:], t3, out=W_vvoooo, alpha=1.0, beta=0.0)
-    # FIXME
+    # TODO: Derive an alternative expression for this term
     W_ovvo_c = t1_eris[:nocc, nocc:, nocc:, :nocc].copy()
     einsum_(mycc, 'nmfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo_c, alpha=1.0, beta=1.0)
     einsum_(mycc, 'mnfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo_c, alpha=-0.5, beta=1.0)
@@ -166,16 +165,20 @@ def intermediates_t4_(mycc, t2, t3, t4):
     return mycc
 
 def compute_r4(mycc, t2, t3, t4):
+    '''Compute r4 with full T4 amplitudes; r4 is returned in full form as well.
+    r4 will require a symmetry restoration step afterward.
+    '''
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
-    nocc, nvir = mycc.nocc, mycc.nvir
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
 
-    # FIXME
     c_t3 = np.empty_like(t3)
-    t3_symm(t3, c_t3, nocc**3, nvir, "20-100-1", 1.0, 0.0)
+    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
+    # TODO: Avoid recomputing c_t3; cache or reuse the result
     c_t4 = np.empty_like(t4)
-    t4_symm(t4, c_t4, nocc**4, nvir, "cnnn", 1.0, 0.0)
+    t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
 
     r4 = np.empty_like(t4)
     # R4: P0
@@ -225,18 +228,22 @@ def compute_r4(mycc, t2, t3, t4):
     time1 = log.timer_debug1('t4: W_vvvvoo * t2', *time1)
     return r4
 
-def r4_divide_e_(mycc, r4, eris):
-    nocc, nvir = mycc.nocc, mycc.nvir
-    eia = eris.mo_energy[:nocc, None] - eris.mo_energy[None, nocc:] - mycc.level_shift
+def r4_divide_e_(mycc, r4, mo_energy):
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
+    eia = mo_energy[:nocc, None] - mo_energy[None, nocc:] - mycc.level_shift
     eijkl_division_(r4, eia, nocc, nvir)
 
 def update_amps_rccsdtq_(mycc, tamps, eris):
+    '''Update RCCSDTQ amplitudes in place, with T4 amplitudes stored in full form.'''
+    assert (isinstance(eris, _PhysicistsERIs))
     time0 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
-    nocc, nvir = mycc.nocc, mycc.nvir
-
+    nocc, nmo = mycc.nocc, mycc.nmo
+    nvir = nmo - nocc
     t1, t2, t3, t4 = tamps
+    mo_energy = eris.mo_energy.copy()
 
     # t1, t2
     update_t1_fock_eris_(mycc, t1, eris)
@@ -251,7 +258,7 @@ def update_amps_rccsdtq_(mycc, tamps, eris):
     r2 += r2.transpose(1, 0, 3, 2)
     time1 = log.timer_debug1('t1t2: symmetrize r2', *time1)
     # divide by eijkabc
-    r1r2_divide_e_(mycc, r1, r2, eris)
+    r1r2_divide_e_(mycc, r1, r2, mo_energy)
     time1 = log.timer_debug1('t1t2: divide r1 & r2 by eia & eijab', *time1)
 
     res_norm = [np.linalg.norm(r1), np.linalg.norm(r2)]
@@ -269,12 +276,12 @@ def update_amps_rccsdtq_(mycc, tamps, eris):
     r3_add_t4_(mycc, t4, r3)
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrization
-    t3_p_sum_ip_(r3, nocc, nvir, 1.0, 0.0)
-    t3_symm_ip_(r3, nocc**3, nvir, "111111", -1.0 / 6.0, 1.0)
+    t3_perm_symmetrize_inplace_(r3, nocc, nvir, 1.0, 0.0)
+    t3_spin_summation_inplace_(r3, nocc**3, nvir, "P3_full", -1.0 / 6.0, 1.0)
     purify_tamps_(r3)
     time1 = log.timer_debug1('t3: symmetrize r3', *time1)
     # divide by eijkabc
-    r3_divide_e_(mycc, r3, eris)
+    r3_divide_e_(mycc, r3, mo_energy)
     time1 = log.timer_debug1('t3: divide r3 by eijkabc', *time1)
 
     res_norm.append(np.linalg.norm(r3))
@@ -291,12 +298,12 @@ def update_amps_rccsdtq_(mycc, tamps, eris):
     r4 = compute_r4(mycc, t2, t3, t4)
     time1 = log.timer_debug1('t4: compute r4', *time1)
     # symmetrize r4
-    t4_p_sum_ip_(r4, nocc, nvir, 1.0, 0.0)
-    t4_symm_ip_(r4, nocc**4, nvir, "11111111", -1.0 / 24.0, 1.0)
+    t4_perm_symmetrize_inplace_(r4, nocc, nvir, 1.0, 0.0)
+    t4_spin_summation_inplace_c(r4, nocc**4, nvir, "P4_full", -1.0 / 24.0, 1.0)
     purify_tamps_(r4)
     time1 = log.timer_debug1('t4: symmetrize r4', *time1)
     # divide by eijkabc
-    r4_divide_e_(mycc, r4, eris)
+    r4_divide_e_(mycc, r4, mo_energy)
     time1 = log.timer_debug1('t4: divide r4 by eijklabcd', *time1)
 
     res_norm.append(np.linalg.norm(r4))
@@ -320,7 +327,7 @@ class RCCSDTQ(rccsdtq.RCCSDTQ):
 
 if __name__ == "__main__":
 
-    from pyscf import gto, scf, df
+    from pyscf import gto, scf
 
     mol = gto.M(atom="N 0 0 0; N 0 0 1.1", basis="sto3g", verbose=3)
     mf = scf.RHF(mol)
@@ -332,50 +339,13 @@ if __name__ == "__main__":
     ref_ecorr = -0.157579406507473
     frozen = 0
     mycc = RCCSDTQ(mf, frozen=frozen)
-    mycc.set_einsum_backend('pytblis')
+    mycc.set_einsum_backend('numpy')
     mycc.conv_tol = 1e-12
     mycc.conv_tol_normt = 1e-10
     mycc.max_cycle = 100
     mycc.verbose = 5
     mycc.do_diis_maxT = True
-    ecorr, tamps = mycc.kernel()
-    print("My E_corr: % .10f    Ref E_corr: % .10f    Diff: % .10e"%(ecorr, ref_ecorr, ecorr - ref_ecorr))
+    mycc.incore_complete = True
+    mycc.kernel()
+    print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc.e_corr, ref_ecorr, mycc.e_corr - ref_ecorr))
     print()
-
-    # mol = gto.M(atom="N 0 0 0; N 0 0 1.1", basis="631g", verbose=3)
-    # mf = scf.RHF(mol)
-    # mf.level_shift = 0.0
-    # mf.conv_tol = 1e-14
-    # mf.max_cycle = 1000
-    # mf.kernel()
-    # print()
-    # ref_ecorr = -0.2375471406644931
-    # frozen = 0
-    # mycc = RCCSDTQ(mf, frozen=frozen)
-    # mycc.conv_tol = 1e-12
-    # mycc.conv_tol_normt = 1e-10
-    # mycc.max_cycle = 100
-    # mycc.verbose = 5
-    # mycc.do_diis_maxT = True
-    # ecorr, tamps = mycc.kernel()
-    # print("My E_corr: % .10f    Ref E_corr: % .10f    Diff: % .10e"%(ecorr, ref_ecorr, ecorr - ref_ecorr))
-    # print()
-
-    # mol = gto.M(atom="N 0 0 0; N 0 0 1.1", basis="ccpvdz", verbose=3)
-    # mf = scf.RHF(mol)
-    # mf.level_shift = 0.0
-    # mf.conv_tol = 1e-14
-    # mf.max_cycle = 1000
-    # mf.kernel()
-    # print()
-    # ref_ecorr = -0.3271440696774139
-    # frozen = 0
-    # mycc = RCCSDTQ(mf, frozen=frozen)
-    # mycc.conv_tol = 1e-12
-    # mycc.conv_tol_normt = 1e-10
-    # mycc.max_cycle = 100
-    # mycc.verbose = 5
-    # mycc.do_diis_maxT = True
-    # ecorr, tamps = mycc.kernel()
-    # print("My E_corr: % .10f    Ref E_corr: % .10f    Diff: % .10e"%(ecorr, ref_ecorr, ecorr - ref_ecorr))
-    # print()
