@@ -28,32 +28,55 @@ const double sign6[6] = {1.0, -1.0, -1.0, 1.0, 1.0, -1.0};
 // Signs for 2-fold permutations
 const double sign2[2] = {1.0, -1.0};
 
-// Unpack 6-fold anti-symmetric tensor
-void unpack_6fold_antisymm_c(const double *restrict t3_tril,
-                             double *restrict t3_blk,
-                             const int64_t *restrict map_o,
-                             const bool *restrict mask_o,
-                             const int64_t *restrict map_v,
-                             const bool *restrict mask_v,
-                             int64_t i0, int64_t i1,
-                             int64_t j0, int64_t j1,
-                             int64_t k0, int64_t k1,
-                             int64_t a0, int64_t a1,
-                             int64_t b0, int64_t b1,
-                             int64_t c0, int64_t c1,
-                             int64_t nocc, int64_t nvir,
-                             int64_t blk_i, int64_t blk_j, int64_t blk_k,
-                             int64_t blk_a, int64_t blk_b, int64_t blk_c)
+// Unpack triangular-stored T3 amplitudes with (alpha, alpha, alpha) spin into a full (i, j, k, a, b, c) block.
+//
+// This kernel reconstructs the T3 (alpha, alpha, alpha) tensor block from its
+// triangular representation without forming the full tensor in memory.
+// It is intended for UCCSDT and GCCSDT where T3 amplitudes are fully
+// antisymmetrized; it must **not** be used for RCCSDT (restricted case).
+//
+// Both the occupied and virtual index triplets are assumed to satisfy a
+// triangular-domain storage convention (i < j < k and a < b < c). The
+// corresponding symmetry masks and permutation maps are applied to expand the
+// data into a contiguous block:
+//
+//     t3_full[i0:i1, j0:j1, k0:k1, a0:a1, b0:b1, c0:c1]
+//
+// Input
+//   t3_tril                   : triangular-stored T3 (alpha, alpha, alpha) amplitudes
+//   t3_blk                    : output buffer of size [blk_i * blk_j * blk_k * blk_a * blk_b * blk_c]
+//   map_o                     : mapping (sym_o, i, j, k) -> triangular occupied index
+//   mask_o                    : triangular mask for occupied indices (i,j,k)
+//   map_v                     : mapping (sym_v, a, b, c) -> triangular virtual index
+//   mask_v                    : triangular mask for virtual indices (a,b,c)
+//   [i0:i1), [j0:j1), [k0:k1) : occupied index ranges for this block
+//   [a0:a1), [b0:b1), [c0:c1) : virtual index ranges for this block
+//   nocc, nvir                : number of occupied / virtual orbitals
+//   blk_i, blk_j, blk_k       : block sizes for occupied orbitals
+//   blk_a, blk_b, blk_c       : block sizes for virtual orbitals
+void unpack_t3_aaa_tril2block_c(const double *restrict t3_tril,
+                                double *restrict t3_blk,
+                                const int64_t *restrict map_o,
+                                const bool *restrict mask_o,
+                                const int64_t *restrict map_v,
+                                const bool *restrict mask_v,
+                                int64_t i0, int64_t i1,
+                                int64_t j0, int64_t j1,
+                                int64_t k0, int64_t k1,
+                                int64_t a0, int64_t a1,
+                                int64_t b0, int64_t b1,
+                                int64_t c0, int64_t c1,
+                                int64_t nocc, int64_t nvir,
+                                int64_t blk_i, int64_t blk_j, int64_t blk_k,
+                                int64_t blk_a, int64_t blk_b, int64_t blk_c)
 {
 #define MAP_O(sym, x, y, z) map_o[(((sym) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 #define MASK_O(sym, x, y, z) mask_o[(((sym) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 #define MAP_V(sym, x, y, z) map_v[(((sym) * nvir + (x)) * nvir + (y)) * nvir + (z)]
 #define MASK_V(sym, x, y, z) mask_v[(((sym) * nvir + (x)) * nvir + (y)) * nvir + (z)]
 
-    // Compute no3
     int64_t no3 = nvir * (nvir - 1) * (nvir - 2) / 6;
 
-    // Zero out the block
     int64_t blk_size = blk_i * blk_j * blk_k * blk_a * blk_b * blk_c;
     memset(t3_blk, 0, blk_size * sizeof(double));
 
@@ -94,7 +117,6 @@ void unpack_6fold_antisymm_c(const double *restrict t3_tril,
                                     int64_t loc_b = b - b0;
                                     int64_t loc_c = c - c0;
 
-                                    // No permutation needed - mask already handles it
                                     int64_t src_idx = o_idx * no3 + v_idx;
                                     int64_t dest_idx = ((((loc_i * blk_j + loc_j) * blk_k + loc_k) * blk_a + loc_a) * blk_b + loc_b) * blk_c + loc_c;
 
@@ -113,8 +135,25 @@ void unpack_6fold_antisymm_c(const double *restrict t3_tril,
 #undef MASK_V
 }
 
-// Update packed 6-fold anti-symmetric tensor
-void update_packed_6fold_antisymm_c(double *restrict t3_tril,
+// Reduce a full T3 (alpha, alpha, alpha) block into triangular 6-fold storage.
+//
+// This routine takes a contiguous (i, j, k, a, b, c) block of the T3 (alpha, alpha, alpha) amplitudes
+// and accumulates the contribution into the triangularly-stored T3 (alpha, alpha, alpha) representation:
+//
+//     t3_tril = beta * t3_tril + alpha * t3_blk
+//
+// Input
+//   t3_tril                   : triangular-stored T3 (alpha, alpha, alpha) amplitudes
+//   t3_blk                    : full T3 block [blk_i * blk_j * blk_k * blk_a * blk_b * blk_c]
+//   map_o                     : mapping (sym_o, i, j, k) -> triangular occupied index
+//   map_v                     : mapping (sym_v, a, b, c) -> triangular virtual index
+//   [i0:i1), [j0:j1), [k0:k1) : occupied-index ranges for the block
+//   [a0:a1), [b0:b1), [c0:c1) : virtual-index ranges for the block
+//   nocc, nvir                : number of occupied / virtual orbitals
+//   blk_i, blk_j, blk_k       : block size of occupied orbitals
+//   blk_a, blk_b, blk_c       : block size of virtual orbitals
+//   alpha, beta               : scaling factors for update
+void accumulate_t3_aaa_block2tril_c(double *restrict t3_tril,
                                     const double *restrict t3_blk,
                                     const int64_t *restrict map_o,
                                     const int64_t *restrict map_v,
@@ -137,7 +176,6 @@ void update_packed_6fold_antisymm_c(double *restrict t3_tril,
     if (b1 < a0 || c1 < b0)
         return;
 
-    // Compute no3
     int64_t no3 = nvir * (nvir - 1) * (nvir - 2) / 6;
 
 #pragma omp parallel for collapse(3) schedule(dynamic)
@@ -210,33 +248,55 @@ void update_packed_6fold_antisymm_c(double *restrict t3_tril,
 #undef MAP_V
 }
 
-// Unpack 2-fold anti-symmetric tensor
-void unpack_2fold_antisymm_c(const double *restrict t3_tril,
-                             double *restrict t3_blk,
-                             const int64_t *restrict map_o,
-                             const bool *restrict mask_o,
-                             const int64_t *restrict map_v,
-                             const bool *restrict mask_v,
-                             int64_t i0, int64_t i1,
-                             int64_t j0, int64_t j1,
-                             int64_t a0, int64_t a1,
-                             int64_t b0, int64_t b1,
-                             int64_t k0, int64_t k1,
-                             int64_t c0, int64_t c1,
-                             int64_t nocc, int64_t nvir,
-                             int64_t dim4, int64_t dim5,
-                             int64_t blk_i, int64_t blk_j,
-                             int64_t blk_a, int64_t blk_b)
+// Unpack triangular-stored T3 (alpha, alpha, beta) amplitudes into a full (i, j, a, b, k, c) block.
+//
+// This kernel expands the T3 (alpha, alpha, beta) amplitudes stored in a 2-fold triangular format
+// into a contiguous block.  Both the occupied pair (i < j) and virtual pair (a < b) use 2-fold (swap) symmetry,
+// while the beta spin index (k, c) remains unsymmetrized.
+//
+// This routine is intended for UCCSDT/GCCSDT.  It **must not** be used for RCCSDT.
+//
+// Conceptually, this produces the block
+//
+//     t3_full[i0:i1, j0:j1, a0:a1, b0:b1, k0:k1, c0:c1]
+//
+// Input
+//   t3_tril                    : triangular-stored T3 (alpha, alpha, beta) amplitudes
+//   t3_blk                     : output buffer [blk_i * blk_j * blk_a * blk_b * dim4 * dim5]
+//   map_o                      : mapping (sym_o, i, j) -> triangular occupied index
+//   mask_o                     : triangular mask for occupied indices (i, j)
+//   map_v                      : mapping (sym_v, a, b) -> triangular virtual index
+//   mask_v                     : triangular mask for virtual indices (a, b)
+//   i0, i1; j0, j1             : occupied alpha index ranges
+//   a0, a1; b0, b1             : virtual alpha index ranges
+//   k0, k1; c0, c1             : beta occupied and beta virtual index ranges
+//   nocc, nvir                 : number of occupied / virtual orbitals
+//   dim4, dim5                 : extents for the beta indices (k and c)
+//   blk_i, blk_j, blk_a, blk_b : block sizes for alpha occupied and virtual orbitals
+void unpack_t3_aab_tril2block_c(const double *restrict t3_tril,
+                                double *restrict t3_blk,
+                                const int64_t *restrict map_o,
+                                const bool *restrict mask_o,
+                                const int64_t *restrict map_v,
+                                const bool *restrict mask_v,
+                                int64_t i0, int64_t i1,
+                                int64_t j0, int64_t j1,
+                                int64_t a0, int64_t a1,
+                                int64_t b0, int64_t b1,
+                                int64_t k0, int64_t k1,
+                                int64_t c0, int64_t c1,
+                                int64_t nocc, int64_t nvir,
+                                int64_t dim4, int64_t dim5,
+                                int64_t blk_i, int64_t blk_j,
+                                int64_t blk_a, int64_t blk_b)
 {
 #define MAP_O(sym, x, y) map_o[((sym) * nocc + (x)) * nocc + (y)]
 #define MASK_O(sym, x, y) mask_o[((sym) * nocc + (x)) * nocc + (y)]
 #define MAP_V(sym, x, y) map_v[((sym) * nvir + (x)) * nvir + (y)]
 #define MASK_V(sym, x, y) mask_v[((sym) * nvir + (x)) * nvir + (y)]
 
-    // Compute no2
     int64_t no2 = nvir * (nvir - 1) / 2;
 
-    // Zero out the block
     int64_t blk_size = blk_i * blk_j * blk_a * blk_b * dim4 * dim5;
     memset(t3_blk, 0, blk_size * sizeof(double));
 
@@ -271,7 +331,6 @@ void unpack_2fold_antisymm_c(const double *restrict t3_tril,
                             int64_t loc_a = a - a0;
                             int64_t loc_b = b - b0;
 
-                            // No permutation needed - mask already handles it
                             for (int64_t d4 = k0; d4 < k1; ++d4)
                             {
                                 for (int64_t d5 = c0; d5 < c1; ++d5)
@@ -294,8 +353,28 @@ void unpack_2fold_antisymm_c(const double *restrict t3_tril,
 #undef MASK_V
 }
 
-// Update packed 2-fold anti-symmetric tensor
-void update_packed_2fold_antisymm_c(double *restrict t3_tril,
+// Accumulate a T3 (alpha, alpha, beta) block back into the triangular-stored representation.
+//
+// This routine takes a contiguous block of T3 (alpha, alpha, beta) amplitudes
+//     t3[i0:i1, j0:j1, a0:a1, b0:b1, k0:k1, c0:c1]
+// and accumulates it back into the compressed triangular storage
+//
+//     t3_tril = beta * t3_tril + alpha * t3_blk
+//
+// Input
+//   t3_tril            : triangular T3 (alpha alpha beta) amplitudes
+//   t3_blk             : block buffer containing T3 (alpha, alpha, beta) amplitudes
+//   map_o              : mapping (sym_o, i, j) -> triangular occupied index
+//   map_v              : mapping (sym_v, a, b) -> triangular virtual index
+//   [i0:i1), [j0:j1)   : alpha  occupied index ranges
+//   [a0:a1), [b0:b1)   : alpha  virtual index ranges
+//   [k0:k1), [c0:c1)   : beta  occupied / virtual index ranges
+//   nocc, nvir         : number of occupied / virtual orbitals
+//   dim4, dim5         : extents of beta  dimensions
+//   blk_i, blk_j       : block sizes for (i, j)
+//   blk_a, blk_b       : block sizes for (a, b)
+//   alpha, beta        : accumulation coefficients
+void accumulate_t3_aab_block2tril_c(double *restrict t3_tril,
                                     const double *restrict t3_blk,
                                     const int64_t *restrict map_o,
                                     const int64_t *restrict map_v,
@@ -319,7 +398,6 @@ void update_packed_2fold_antisymm_c(double *restrict t3_tril,
     if (b1 < a0)
         return;
 
-    // Compute no2
     int64_t no2 = nvir * (nvir - 1) / 2;
 
 #pragma omp parallel for collapse(2) schedule(dynamic)
