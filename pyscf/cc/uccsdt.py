@@ -2715,6 +2715,7 @@ class UCCSDT(ccsd.CCSDBase):
     run_diis = run_diis
     _finalize = _finalize
     dump_flags = dump_flags
+    dump_chk = dump_chk
     tamp_tril2full = tamp_tril2full_uhf
     tamp_full2tril = tamp_full2tril_uhf
     tamp_rhf2uhf = tamp_rhf2uhf

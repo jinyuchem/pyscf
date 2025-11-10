@@ -1048,7 +1048,7 @@ def kernel(mycc, eris=None, tamps=None, tol=1e-8, tolnormt=1e-6, max_cycle=50, v
         mycc.e_corr_os = getattr(e_corr, 'e_corr_os', 0)
 
         mycc.cycles = istep + 1
-        log.info("cycle = %2d  E_corr(%s) = % .12f  dE = % .12e  norm(tamps) = %.8e" % (
+        log.info("cycle = %2d  E_corr(%s) = % .12f  dE = % .12e  norm(d tamps) = %.8e" % (
             istep + 1, mycc.__class__.__name__, e_corr, e_corr - e_corr_old, normt))
         cput1 = log.timer(f'{name} iter', *cput1)
 

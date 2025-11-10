@@ -238,6 +238,17 @@ def BCCD(mf, frozen=None, u=None, conv_tol_normu=1e-5, max_cycle=20, diis=True,
     return mycc.view(BCCD)
 
 
+def CCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
+    if mf.istype('UHF'):
+        return UCCSDT(mf, frozen, mo_coeff, mo_occ, high_memory=high_memory)
+    elif mf.istype('GHF'):
+        raise NotImplementedError("GCCSDT not implemented")
+    else:
+        return RCCSDT(mf, frozen, mo_coeff, mo_occ, high_memory=high_memory)
+
+scf.hf.SCF.CCSDT = CCSDT
+
+
 def RCCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
     import numpy
     from pyscf import lib
@@ -295,6 +306,17 @@ def UCCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
         else:
             return uccsdt.UCCSDT(mf, frozen, mo_coeff, mo_occ)
 UCCSDT.__doc__ = uccsdt.UCCSDT.__doc__
+
+
+def CCSDTQ(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
+    if mf.istype('UHF'):
+        return NotImplementedError("UCCSDTQ not implemented")
+    elif mf.istype('GHF'):
+        raise NotImplementedError("GCCSDTQ not implemented")
+    else:
+        return RCCSDTQ(mf, frozen, mo_coeff, mo_occ, high_memory=high_memory)
+
+scf.hf.SCF.CCSDTQ = CCSDTQ
 
 
 def RCCSDTQ(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
