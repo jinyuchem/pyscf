@@ -45,7 +45,7 @@ def setUpModule():
     rhf.conv_tol_grad = 1e-8
     rhf.kernel()
     mf = scf.addons.convert_to_uhf(rhf)
-    myucc = cc.UCCSDT(mf, high_memory=True).run(conv_tol=1e-10)
+    myucc = cc.UCCSDT(mf, compact_tamps=False).run(conv_tol=1e-10)
 
     mol_s2 = gto.Mole()
     mol_s2.atom = [
@@ -71,22 +71,22 @@ class KnownValues(unittest.TestCase):
 
     def test_rccsdt_s0(self):
         mf = scf.RHF(mol).run()
-        myrcc = cc.RCCSDT(mf, high_memory=True).run(conv_tol=1e-10)
+        myrcc = cc.RCCSDT(mf, compact_tamps=False).run(conv_tol=1e-10)
         self.assertAlmostEqual(myrcc.e_tot, myucc.e_tot, 8)
 
     def test_with_df_s0(self):
         mf = scf.UHF(mol).density_fit(auxbasis='weigend').run()
-        mycc = cc.UCCSDT(mf, high_memory=True).run(conv_tol=1e-10)
+        mycc = cc.UCCSDT(mf, compact_tamps=False).run(conv_tol=1e-10)
         self.assertAlmostEqual(mycc.e_tot, -76.11948106436947, 8)
 
     def test_with_df_s2(self):
         mf = scf.UHF(mol_s2).density_fit(auxbasis='weigend').run()
-        mycc = cc.UCCSDT(mf, high_memory=True).run(conv_tol=1e-10)
+        mycc = cc.UCCSDT(mf, compact_tamps=False).run(conv_tol=1e-10)
         self.assertAlmostEqual(mycc.e_tot, -75.83479685448731, 8)
 
     def test_restart_s0(self):
         ftmp = tempfile.NamedTemporaryFile()
-        cc1 = cc.UCCSDT(mf, high_memory=True)
+        cc1 = cc.UCCSDT(mf, compact_tamps=False)
         cc1.max_cycle = 5
         cc1.kernel()
         ref = cc1.e_corr
@@ -128,7 +128,7 @@ class KnownValues(unittest.TestCase):
         cc1.kernel(tamps)
         self.assertAlmostEqual(cc1.e_corr, ref, 8)
 
-        cc2 = cc.UCCSDT(mf, high_memory=True)
+        cc2 = cc.UCCSDT(mf, compact_tamps=False)
         cc2.restore_from_diis_(ftmp.name)
         self.assertAlmostEqual(abs(cc1.t1[0] - cc2.t1[0]).max(), 0, 9)
         self.assertAlmostEqual(abs(cc1.t1[1] - cc2.t1[1]).max(), 0, 9)
@@ -142,7 +142,7 @@ class KnownValues(unittest.TestCase):
 
     def test_restart_s2(self):
         ftmp = tempfile.NamedTemporaryFile()
-        cc1 = cc.UCCSDT(mf_s2, high_memory=True)
+        cc1 = cc.UCCSDT(mf_s2, compact_tamps=False)
         cc1.max_cycle = 5
         cc1.kernel()
         ref = cc1.e_corr
@@ -176,7 +176,7 @@ class KnownValues(unittest.TestCase):
         cc1.kernel(tamps)
         self.assertAlmostEqual(cc1.e_corr, ref, 8)
 
-        cc2 = cc.UCCSDT(mf_s2, high_memory=True)
+        cc2 = cc.UCCSDT(mf_s2, compact_tamps=False)
         cc2.restore_from_diis_(ftmp.name)
         self.assertAlmostEqual(abs(cc1.t1[0] - cc2.t1[0]).max(), 0, 9)
         self.assertAlmostEqual(abs(cc1.t1[1] - cc2.t1[1]).max(), 0, 9)
@@ -188,11 +188,11 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(abs(cc1.t3[2] - cc2.t3[2]).max(), 0, 9)
         self.assertAlmostEqual(abs(cc1.t3[3] - cc2.t3[3]).max(), 0, 9)
 
-    def test_restart_s2_not_do_diis_maxT(self):
+    def test_restart_s2_not_do_diis_max_t(self):
         ftmp = tempfile.NamedTemporaryFile()
-        cc1 = cc.UCCSDT(mf_s2, high_memory=True)
+        cc1 = cc.UCCSDT(mf_s2, compact_tamps=False)
         cc1.max_cycle = 5
-        cc1.do_diis_maxT = False
+        cc1.do_diis_max_t = False
         cc1.kernel()
         ref = cc1.e_corr
 
@@ -222,8 +222,8 @@ class KnownValues(unittest.TestCase):
         cc1.kernel(tamps)
         self.assertAlmostEqual(cc1.e_corr, ref, 8)
 
-        cc2 = cc.UCCSDT(mf_s2, high_memory=True)
-        cc2.do_diis_maxT = False
+        cc2 = cc.UCCSDT(mf_s2, compact_tamps=False)
+        cc2.do_diis_max_t = False
         cc2.restore_from_diis_(ftmp.name)
         self.assertAlmostEqual(abs(cc1.t1[0] - cc2.t1[0]).max(), 0, 9)
         self.assertAlmostEqual(abs(cc1.t1[1] - cc2.t1[1]).max(), 0, 9)
@@ -232,17 +232,15 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(abs(cc1.t2[2] - cc2.t2[2]).max(), 0, 9)
 
     def test_rccsdt_amplitudes(self):
-        cc1 = cc.RCCSDT(rhf, high_memory=True).run(conv_tol=1e-10)
-        cc2 = cc.UCCSDT(mf, high_memory=True).run(conv_tol=1e-10)
+        cc1 = cc.RCCSDT(rhf, compact_tamps=False).run(conv_tol=1e-10)
+        cc2 = cc.UCCSDT(mf, compact_tamps=False).run(conv_tol=1e-10)
         self.assertAlmostEqual(cc1.e_tot, cc2.e_tot, 8)
+        tamps_uhf2rhf = cc2.tamps_uhf2rhf(cc2.tamps)
+        tamps_rhf2uhf = cc2.tamps_rhf2uhf(cc1.tamps)
         t1_rhf, t2_rhf, t3_rhf = cc1.tamps
+        t1_uhf2rhf, t2_uhf2rhf, t3_uhf2rhf = tamps_uhf2rhf
         t1_uhf, t2_uhf, t3_uhf = cc2.tamps
-        t1_uhf2rhf = cc2.tamp_uhf2rhf(t1_uhf)
-        t2_uhf2rhf = cc2.tamp_uhf2rhf(t2_uhf)
-        t3_uhf2rhf = cc2.tamp_uhf2rhf(t3_uhf)
-        t1_rhf2uhf = cc2.tamp_rhf2uhf(t1_rhf, order=1)
-        t2_rhf2uhf = cc2.tamp_rhf2uhf(t2_rhf, order=2)
-        t3_rhf2uhf = cc2.tamp_rhf2uhf(t3_rhf, order=3)
+        t1_rhf2uhf, t2_rhf2uhf, t3_rhf2uhf = tamps_rhf2uhf
         self.assertAlmostEqual(abs(t1_rhf - t1_uhf2rhf).max(), 0, 7)
         self.assertAlmostEqual(abs(t2_rhf - t2_uhf2rhf).max(), 0, 7)
         self.assertAlmostEqual(abs(t3_rhf - t3_uhf2rhf).max(), 0, 7)
@@ -259,7 +257,7 @@ class KnownValues(unittest.TestCase):
     def test_uccsdt_frozen(self):
         # Freeze 1s electrons
         frozen = [[0, 1], [0, 1]]
-        ucc = cc.UCCSDT(mf_s2, frozen=frozen, high_memory=True)
+        ucc = cc.UCCSDT(mf_s2, frozen=frozen, compact_tamps=False)
         ucc.diis_start_cycle = 1
         ucc.conv_tol = 1e-10
         ecc, tamps = ucc.kernel()
@@ -324,7 +322,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(abs(mycc.t2[0] - mycc2.t2[0]).max(), 0, 8)
 
     def test_reset(self):
-        mycc = cc.UCCSDT(scf.UHF(mol).newton(), high_memory=True)
+        mycc = cc.UCCSDT(scf.UHF(mol).newton(), compact_tamps=False)
         mycc.reset(mol_s2)
         self.assertTrue(mycc.mol is mol_s2)
         self.assertTrue(mycc._scf.mol is mol_s2)

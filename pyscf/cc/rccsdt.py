@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 # Author: Yu Jin <yjin@flatironinstitute.org>
+#         Huanchen Zhai <hczhai.ok@gmail.com>
 #
 
 '''
@@ -27,6 +28,7 @@ Chem. Phys. Lett. 228, 233 (1994); DOI:10.1016/0009-2614(94)00898-1
 
 import numpy as np
 import numpy
+import functools
 from functools import reduce
 import ctypes
 from pyscf import ao2mo, lib
@@ -37,36 +39,13 @@ from pyscf.cc import ccsd, _ccsd
 from pyscf import __config__
 
 
-def einsum_(mycc, script, *tensors, out=None, alpha=1.0, beta=0.0, optimize='optimal', einsum_backend=None):
-    '''Wrapper for einsum supporting pytblis, tblis_einsum, hast-ctr, pyscf.lib, or numpy backends.
-    Defaults to pytblis if available, else falls back to numpy.
-    '''
-    if mycc is not None:
-        einsum_backend = mycc.einsum_backend
-    else:
-        if einsum_backend is None:
-            einsum_backend = 'pytblis'
+_libccsdt = lib.load_library('libccsdt')
 
+def _einsum(einsum_backend, script, *tensors, out=None, alpha=1.0, beta=0.0):
+    '''Wrapper for einsum supporting pytblis, pyscf.lib.einsum, or numpy.einsum backends.'''
     if einsum_backend == 'pytblis':
         try:
             import pytblis
-        except ImportError:
-            import numpy as np
-            einsum_backend = 'numpy'
-    elif einsum_backend == 'hast-ctr':
-        try:
-            import sys
-            sys.path.insert(0, '/mnt/home/yjin1/code/pyscf/t1_dressed_ccsdt/hast-ctr/hast-ctr')
-            import hastctr
-        except ImportError:
-            import numpy as np
-            einsum_backend = 'numpy'
-    elif einsum_backend == 'tblis_einsum':
-        try:
-            import sys
-            sys.path.insert(0,
-                '/mnt/home/yjin1/code/pyscf/.pyscf_genoa/lib/python3.11/site-packages/pyscf/tblis_einsum/')
-            import tblis_einsum
         except ImportError:
             import numpy as np
             einsum_backend = 'numpy'
@@ -94,22 +73,10 @@ def einsum_(mycc, script, *tensors, out=None, alpha=1.0, beta=0.0, optimize='opt
             out = _fix_strides_for_pytblis(out)
             pytblis.contract(script, *tensors, out=out, alpha=alpha, beta=beta)
             return
-    elif einsum_backend == 'hast-ctr':
-        if out is None:
-            result = hastctr.hast_einsum(script, *tensors)
-        else:
-            hastctr.hast_einsum(script, *tensors, out=out, alpha=alpha, beta=beta)
-            return
-    elif einsum_backend == 'tblis_einsum':
-        if out is None:
-            result = tblis_einsum.contract(script, *tensors)
-        else:
-            tblis_einsum.contract(script, *tensors, out=out, alpha=alpha, beta=beta)
-            return
     elif einsum_backend == 'pyscf':
-        result = lib.einsum(script, *tensors, optimize=optimize)
+        result = lib.einsum(script, *tensors, optimize='optimal')
     else:
-        result = np.einsum(script, *tensors, optimize=optimize)
+        result = np.einsum(script, *tensors, optimize='optimal')
 
     if out is None:
         if alpha != 1.0:
@@ -125,78 +92,81 @@ def einsum_(mycc, script, *tensors, out=None, alpha=1.0, beta=0.0, optimize='opt
 def t3_spin_summation_inplace_(A, nocc3, nvir, pattern, alpha=1.0, beta=0.0):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
     pattern_c = pattern.encode('utf-8')
-    _ccsd.libccsdt.t3_spin_summation_inplace_c(
+    _libccsdt.t3_spin_summation_inplace_(
         A.ctypes.data_as(ctypes.c_void_p),
         ctypes.c_int64(nocc3), ctypes.c_int64(nvir),
         ctypes.c_char_p(pattern_c),
         ctypes.c_double(alpha), ctypes.c_double(beta)
     )
+    return A
 
-def unpack_t3_tril2block_(t3, t3_blk, map_, mask, i0, i1, j0, j1, k0, k1, nocc, nvir, blk_i, blk_j, blk_k):
+def unpack_t3_tri2block_(t3, t3_blk, map_, mask, i0, i1, j0, j1, k0, k1, nocc, nvir, blk_i, blk_j, blk_k):
     assert t3.dtype == np.float64 and t3_blk.dtype == np.float64
     assert map_.dtype == np.int64 and mask.dtype == np.bool_
-    t3_c = np.ascontiguousarray(t3)
-    t3_blk_c = np.ascontiguousarray(t3_blk)
-    map_c = np.ascontiguousarray(map_)
-    mask_c = np.ascontiguousarray(mask)
-    _ccsd.libccsdt.unpack_t3_tril2block_c(
-        t3_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        t3_blk_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        map_c.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
-        mask_c.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)),
+    t3 = np.ascontiguousarray(t3)
+    t3_blk = np.ascontiguousarray(t3_blk)
+    map_ = np.ascontiguousarray(map_)
+    mask = np.ascontiguousarray(mask)
+    _libccsdt.unpack_t3_tri2block_(
+        t3.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        t3_blk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        map_.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
+        mask.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)),
         ctypes.c_int64(i0), ctypes.c_int64(i1),
         ctypes.c_int64(j0), ctypes.c_int64(j1),
         ctypes.c_int64(k0), ctypes.c_int64(k1),
         ctypes.c_int64(nocc), ctypes.c_int64(nvir),
         ctypes.c_int64(blk_i), ctypes.c_int64(blk_j), ctypes.c_int64(blk_k)
     )
+    return t3_blk
 
-def unpack_t3_tril2single_pair_(t3, t3_blk, map_, mask, i0, j0, k0, nocc, nvir):
+def unpack_t3_tri2single_pair_(t3, t3_blk, map_, mask, i0, j0, k0, nocc, nvir):
     assert t3.dtype == np.float64 and t3_blk.dtype == np.float64
     assert map_.dtype == np.int64 and mask.dtype == np.bool_
-    t3_c = np.ascontiguousarray(t3)
-    t3_blk_c = np.ascontiguousarray(t3_blk)
-    map_c = np.ascontiguousarray(map_)
-    mask_c = np.ascontiguousarray(mask)
-    _ccsd.libccsdt.unpack_t3_tril2single_pair_c(
-        t3_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        t3_blk_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        map_c.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
-        mask_c.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)),
+    t3 = np.ascontiguousarray(t3)
+    t3_blk = np.ascontiguousarray(t3_blk)
+    map_ = np.ascontiguousarray(map_)
+    mask = np.ascontiguousarray(mask)
+    _libccsdt.unpack_t3_tri2single_pair_(
+        t3.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        t3_blk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        map_.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
+        mask.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)),
         ctypes.c_int64(i0), ctypes.c_int64(j0), ctypes.c_int64(k0),
         ctypes.c_int64(nocc), ctypes.c_int64(nvir),
     )
+    return t3_blk
 
-def unpack_t3_tril2block_pair_(t3, t3_blk, map_, mask, i0, i1, j0, j1, k0, k1, nocc, nvir, blk_i, blk_j, blk_k):
+def unpack_t3_tri2block_pair_(t3, t3_blk, map_, mask, i0, i1, j0, j1, k0, k1, nocc, nvir, blk_i, blk_j, blk_k):
     assert t3.dtype == np.float64 and t3_blk.dtype == np.float64
     assert map_.dtype == np.int64 and mask.dtype == np.bool_
-    t3_c = np.ascontiguousarray(t3)
-    t3_blk_c = np.ascontiguousarray(t3_blk)
-    map_c = np.ascontiguousarray(map_)
-    mask_c = np.ascontiguousarray(mask)
-    _ccsd.libccsdt.unpack_t3_tril2block_pair_c(
-        t3_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        t3_blk_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        map_c.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
-        mask_c.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)),
+    t3 = np.ascontiguousarray(t3)
+    t3_blk = np.ascontiguousarray(t3_blk)
+    map_ = np.ascontiguousarray(map_)
+    mask = np.ascontiguousarray(mask)
+    _libccsdt.unpack_t3_tri2block_pair_(
+        t3.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        t3_blk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        map_.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
+        mask.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)),
         ctypes.c_int64(i0), ctypes.c_int64(i1),
         ctypes.c_int64(j0), ctypes.c_int64(j1),
         ctypes.c_int64(k0), ctypes.c_int64(k1),
         ctypes.c_int64(nocc), ctypes.c_int64(nvir),
         ctypes.c_int64(blk_i), ctypes.c_int64(blk_j), ctypes.c_int64(blk_k)
     )
+    return t3_blk
 
-def accumulate_t3_block2tril_(t3, t3_blk, map_, i0, i1, j0, j1, k0, k1,
-                                nocc, nvir, blk_i, blk_j, blk_k, alpha, beta):
+def accumulate_t3_block2tri_(t3, t3_blk, map_, i0, i1, j0, j1, k0, k1, nocc, nvir, blk_i, blk_j, blk_k, alpha, beta):
     assert t3.dtype == np.float64 and t3_blk.dtype == np.float64
     assert map_.dtype == np.int64
-    t3_c = np.ascontiguousarray(t3)
-    t3_blk_c = np.ascontiguousarray(t3_blk)
-    map_c = np.ascontiguousarray(map_)
-    _ccsd.libccsdt.accumulate_t3_block2tril_c(
-        t3_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        t3_blk_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        map_c.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
+    t3 = np.ascontiguousarray(t3)
+    t3_blk = np.ascontiguousarray(t3_blk)
+    map_ = np.ascontiguousarray(map_)
+    _libccsdt.accumulate_t3_block2tri_(
+        t3.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        t3_blk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        map_.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
         ctypes.c_int64(i0), ctypes.c_int64(i1),
         ctypes.c_int64(j0), ctypes.c_int64(j1),
         ctypes.c_int64(k0), ctypes.c_int64(k1),
@@ -204,36 +174,40 @@ def accumulate_t3_block2tril_(t3, t3_blk, map_, i0, i1, j0, j1, k0, k1,
         ctypes.c_int64(blk_i), ctypes.c_int64(blk_j), ctypes.c_int64(blk_k),
         ctypes.c_double(alpha), ctypes.c_double(beta)
     )
+    return t3
 
-def accumulate_t3_single2tril_(t3, t3_blk, map_, i0, j0, k0, nocc, nvir, alpha, beta):
+def accumulate_t3_single2tri_(t3, t3_blk, map_, i0, j0, k0, nocc, nvir, alpha, beta):
     assert t3.dtype == np.float64 and t3_blk.dtype == np.float64
     assert map_.dtype == np.int64
-    t3_c = np.ascontiguousarray(t3)
-    t3_blk_c = np.ascontiguousarray(t3_blk)
-    map_c = np.ascontiguousarray(map_)
-    _ccsd.libccsdt.accumulate_t3_single2tril_c(
-        t3_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        t3_blk_c.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
-        map_c.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
+    t3 = np.ascontiguousarray(t3)
+    t3_blk = np.ascontiguousarray(t3_blk)
+    map_ = np.ascontiguousarray(map_)
+    _libccsdt.accumulate_t3_single2tri_(
+        t3.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        t3_blk.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),
+        map_.ctypes.data_as(ctypes.POINTER(ctypes.c_int64)),
         ctypes.c_int64(i0), ctypes.c_int64(j0), ctypes.c_int64(k0),
         ctypes.c_int64(nocc), ctypes.c_int64(nvir),
         ctypes.c_double(alpha), ctypes.c_double(beta)
     )
+    return t3
 
 def _unpack_t3_(mycc, t3, t3_blk, i0, i1, j0, j1, k0, k1, blksize0=None, blksize1=None, blksize2=None):
     '''Unpack triangular-stored T3 amplitudes into the block `t3_full[i0:i1, j0:j1, k0:k1, :, :, :]`'''
     if blksize0 is None: blksize0 = mycc.blksize
     if blksize1 is None: blksize1 = mycc.blksize
     if blksize2 is None: blksize2 = mycc.blksize
-    unpack_t3_tril2block_(t3, t3_blk, mycc.tril2cube_map, mycc.tril2cube_mask,
+    unpack_t3_tri2block_(t3, t3_blk, mycc.tri2block_map, mycc.tri2block_mask,
                         i0, i1, j0, j1, k0, k1, mycc.nocc, mycc.nmo - mycc.nocc, blksize0, blksize1, blksize2)
+    return t3_blk
 
 def _unpack_t3_s_pair_(mycc, t3, t3_blk, i0, j0, k0):
     '''Unpack triangular-stored T3 amplitudes into the block
     `t3_full[i0, j0, k0, :, :, :] + t3_full[j0, i0, k0, :, :, :].transpose(1, 0, 2)`
     '''
-    unpack_t3_tril2single_pair_(t3, t3_blk, mycc.tril2cube_map, mycc.tril2cube_mask,
+    unpack_t3_tri2single_pair_(t3, t3_blk, mycc.tri2block_map, mycc.tri2block_mask,
                                 i0, j0, k0, mycc.nocc, mycc.nmo - mycc.nocc)
+    return t3_blk
 
 def _unpack_t3_pair_(mycc, t3, t3_blk, i0, i1, j0, j1, k0, k1, blksize0=None, blksize1=None, blksize2=None):
     '''Unpack triangular-stored T3 amplitudes into the block
@@ -242,22 +216,25 @@ def _unpack_t3_pair_(mycc, t3, t3_blk, i0, i1, j0, j1, k0, k1, blksize0=None, bl
     if blksize0 is None: blksize0 = mycc.blksize_oovv
     if blksize1 is None: blksize1 = mycc.nocc
     if blksize2 is None: blksize2 = mycc.blksize_oovv
-    unpack_t3_tril2block_pair_(t3, t3_blk, mycc.tril2cube_map, mycc.tril2cube_mask,
+    unpack_t3_tri2block_pair_(t3, t3_blk, mycc.tri2block_map, mycc.tri2block_mask,
                                 i0, i1, j0, j1, k0, k1, mycc.nocc, mycc.nmo - mycc.nocc, blksize0, blksize1, blksize2)
+    return t3_blk
 
 def _accumulate_t3_(mycc, t3, t3_blk, i0, i1, j0, j1, k0, k1,
                         blksize0=None, blksize1=None, blksize2=None, alpha=1.0, beta=0.0):
     if blksize0 is None: blksize0 = mycc.blksize
     if blksize1 is None: blksize1 = mycc.blksize
     if blksize2 is None: blksize2 = mycc.blksize
-    accumulate_t3_block2tril_(t3, t3_blk, mycc.tril2cube_map, i0, i1, j0, j1, k0, k1,
+    accumulate_t3_block2tri_(t3, t3_blk, mycc.tri2block_map, i0, i1, j0, j1, k0, k1,
                         mycc.nocc, mycc.nmo - mycc.nocc, blksize0, blksize1, blksize2, alpha=alpha, beta=beta)
+    return t3
 
 def _accumulate_t3_s_(mycc, t3, t3_blk, i0, j0, k0, alpha=1.0, beta=0.0):
-    accumulate_t3_single2tril_(t3, t3_blk, mycc.tril2cube_map, i0, j0, k0,
+    accumulate_t3_single2tri_(t3, t3_blk, mycc.tri2block_map, i0, j0, k0,
                                 mycc.nocc, mycc.nmo - mycc.nocc, alpha=alpha, beta=beta)
+    return t3
 
-def setup_tril2cube_rhf_(mycc):
+def setup_tri2block_rhf(mycc):
     '''Build the map used to unpack and accumulate between the triangular-stored T3 and the block of full T3 tensor.'''
     from math import prod, factorial
     nx = lambda n, order: prod(n + i for i in range(order)) // factorial(order)
@@ -267,9 +244,9 @@ def setup_tril2cube_rhf_(mycc):
     noccp = nx(nocc, cc_order)
     nsymm = factorial(cc_order)
 
-    tril2cube_map = np.zeros((nsymm,) + (nocc,) * cc_order, dtype=np.int64)
-    tril2cube_mask = np.zeros((nsymm,) + (nocc,) * cc_order, dtype=np.bool_)
-    tril2cube_tp = []
+    tri2block_map = np.zeros((nsymm,) + (nocc,) * cc_order, dtype=np.int64)
+    tri2block_mask = np.zeros((nsymm,) + (nocc,) * cc_order, dtype=np.bool_)
+    tri2block_tp = []
 
     idx = np.meshgrid(*[np.arange(nocc)] * cc_order, indexing='ij')
     idx = np.stack(idx)
@@ -279,7 +256,7 @@ def setup_tril2cube_rhf_(mycc):
     perms = list(itertools.permutations(range(cc_order)))
     for i, perm in enumerate(perms):
         inds = tuple(tamps_map[p] for p in perm)
-        tril2cube_map[(i,) + inds] = np.arange(noccp)
+        tri2block_map[(i,) + inds] = np.arange(noccp)
 
     labels = tuple("ijklmnop"[:cc_order])
     collect_relation = set(itertools.combinations(labels, 2))
@@ -295,15 +272,12 @@ def setup_tril2cube_rhf_(mycc):
                 comparisons.append(vars_sorted[comparison_idx] < vars_sorted[comparison_idx + 1])
             else:
                 comparisons.append(vars_sorted[comparison_idx] <= vars_sorted[comparison_idx + 1])
-        tril2cube_mask[idx] = np.logical_and.reduce(comparisons)
+        tri2block_mask[idx] = np.logical_and.reduce(comparisons)
 
     for idx, perm in enumerate(perms):
-        tril2cube_tp.append((0,) + tuple([p + 1 for p in perm]))
+        tri2block_tp.append((0,) + tuple([p + 1 for p in perm]))
 
-    mycc.tril2cube_map = tril2cube_map
-    mycc.tril2cube_mask = tril2cube_mask
-    mycc.tril2cube_tp = tril2cube_tp
-    return mycc
+    return tri2block_map, tri2block_mask, tri2block_tp
 
 def update_xy(mycc, t1):
     nocc, nmo = mycc.nocc, mycc.nmo
@@ -314,34 +288,40 @@ def update_xy(mycc, t1):
     return x, y
 
 def update_fock(mycc, x, y, t1, eris):
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
+
     nocc = mycc.nocc
-    t1_fock = eris.fock + einsum_(mycc, 'risa,ia->rs', eris.pqrs[:, :nocc, :, nocc:], t1) * 2.0
-    t1_fock -= einsum_(mycc, 'rias,ia->rs', eris.pqrs[:, :nocc, nocc:, :], t1)
+    t1_fock = eris.fock + einsum('risa,ia->rs', eris.pppp[:, :nocc, :, nocc:], t1) * 2.0
+    t1_fock -= einsum('rias,ia->rs', eris.pppp[:, :nocc, nocc:, :], t1)
     t1_fock = x @ t1_fock @ y.T
     return t1_fock
 
 def update_eris(mycc, x, y, eris):
-    t1_eris = einsum_(mycc, 'tvuw,pt->pvuw', eris.pqrs, x)
-    t1_eris = einsum_(mycc, 'pvuw,rv->pruw', t1_eris, x)
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
+
+    t1_eris = einsum('tvuw,pt->pvuw', eris.pppp, x)
+    t1_eris = einsum('pvuw,rv->pruw', t1_eris, x)
     t1_eris = t1_eris.transpose(2, 3, 0, 1)
     if not t1_eris.flags['C_CONTIGUOUS']:
         t1_eris = np.ascontiguousarray(t1_eris)
-    t1_eris = einsum_(mycc, 'uwpr,qu->qwpr', t1_eris, y)
-    t1_eris = einsum_(mycc, 'qwpr,sw->qspr', t1_eris, y)
+    t1_eris = einsum('uwpr,qu->qwpr', t1_eris, y)
+    t1_eris = einsum('qwpr,sw->qspr', t1_eris, y)
     t1_eris = t1_eris.transpose(2, 3, 0, 1)
     return t1_eris
 
-def update_t1_fock_eris_(mycc, t1, eris=None):
+def update_t1_fock_eris(mycc, t1, eris=None):
     '''Compute the Fock matrix and ERIs dressed by T1 amplitudes.'''
     if eris is None:
         eris = mycc.ao2mo(mycc.mo_coeff)
     x, y = update_xy(mycc, t1)
-    mycc.t1_fock = update_fock(mycc, x, y, t1, eris)
-    mycc.t1_eris = update_eris(mycc, x, y, eris)
-    return mycc
+    t1_fock = update_fock(mycc, x, y, t1, eris)
+    t1_eris = update_eris(mycc, x, y, eris)
+    return t1_fock, t1_eris
 
-def symmetrize_tamps_tril_(r, nocc):
-    '''Symmetrize tril-stored CC amplitudes r according to equal occupied indices. E.g.,
+def symmetrize_tamps_tri_(r, nocc):
+    '''Symmetrize tri-stored CC amplitudes r according to equal occupied indices. E.g.,
     T3:
         - i = j <= k : symmetrize over (a, b)
         - i <= j = k : symmetrize over (b, c)
@@ -363,9 +343,10 @@ def symmetrize_tamps_tril_(r, nocc):
         perm = [0] + list(range(1, order + 1))
         perm[p + 1], perm[p + 2] = perm[p + 2], perm[p + 1]
         r[equal] = 0.5 * (r[equal] + r[np.ix_(equal)].transpose(perm))
+    return r
 
-def purify_tamps_tril_(r, nocc):
-    '''Zero out unphysical diagonal elements in tril-stored CC amplitudes, i.e.,
+def purify_tamps_tri_(r, nocc):
+    '''Zero out unphysical diagonal elements in tri-stored CC amplitudes, i.e.,
     enforces T = 0 if three or more occupied/virtual indices are equal.
     '''
     import itertools, numpy as np
@@ -386,10 +367,14 @@ def purify_tamps_tril_(r, nocc):
         for p in perm:
             idxr[p] = np.mgrid[ : r.shape[p + 1]]
         r[(slice(None), ) + tuple(idxr)] = 0.0
+    return r
 
 def init_amps_rhf(mycc, eris=None):
     '''Initialize CC T-amplitudes for an RHF reference.'''
     time0 = logger.process_clock(), logger.perf_counter()
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
+
     if eris is None:
         eris = mycc.ao2mo(mycc.mo_coeff)
     e_hf = mycc.e_hf
@@ -402,12 +387,12 @@ def init_amps_rhf(mycc, eris=None):
     eijab = eia[:, None, :, None] + eia[None, :, None, :]
 
     t1 = eris.fock[:nocc, nocc:] / eia
-    t2 = eris.oovv / eijab
+    t2 = eris.pppp[:nocc, :nocc, nocc:, nocc:] / eijab
 
-    tau = t2 + einsum_(mycc, "ia,jb->ijab", t1, t1)
-    e_corr = 2.0 * einsum_(mycc, "ijab,ijab->", eris.oovv, tau)
-    e_corr -= einsum_(mycc, "ijba,ijab->", eris.oovv, tau)
-    e_corr += 2.0 * einsum_(mycc, "ai,ia->", eris.fock[nocc:, :nocc], t1)
+    tau = t2 + einsum("ia,jb->ijab", t1, t1)
+    e_corr = 2.0 * einsum("ijab,ijab->", eris.pppp[:nocc, :nocc, nocc:, nocc:], tau)
+    e_corr -= einsum("ijba,ijab->", eris.pppp[:nocc, :nocc, nocc:, nocc:], tau)
+    e_corr += 2.0 * einsum("ai,ia->", eris.fock[nocc:, :nocc], t1)
     logger.info(mycc, "Init t2, MP2 energy = % .12f  E_corr(MP2) % .12f" % (e_hf + e_corr, e_corr))
 
     from math import prod, factorial
@@ -417,7 +402,7 @@ def init_amps_rhf(mycc, eris=None):
     for order in range(2, cc_order - 1):
         tamp = np.zeros((nocc,) * (order + 1) + (nvir,) * (order + 1), dtype=t1.dtype)
         tamps.append(tamp)
-    if mycc.do_tril_maxT:
+    if mycc.do_tri_max_t:
         tamp = np.zeros((nx(nocc, cc_order),) + (nvir,) * cc_order, dtype=t1.dtype)
     else:
         tamp = np.zeros((nocc,) * cc_order + (nvir,) * cc_order, dtype=t1.dtype)
@@ -427,22 +412,23 @@ def init_amps_rhf(mycc, eris=None):
 
 def energy_rhf(mycc, tamps, eris=None):
     '''CC correlation energy for an RHF reference.'''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
+
     if tamps is None:
         t1, t2 = mycc.tamps[:2]
     else:
         t1, t2 = tamps[:2]
-
     if eris is None: eris = mycc.ao2mo()
 
     nocc = t1.shape[0]
 
-    tau = t2 + einsum_(mycc, "ia,jb->ijab", t1, t1)
-    ed = einsum_(mycc, 'ijab,ijab->', tau, eris.oovv, optimize='optimal') * 2.0
-    ex = - einsum_(mycc, 'ijab,ijba->', tau, eris.oovv, optimize='optimal')
+    tau = t2 + einsum("ia,jb->ijab", t1, t1)
+    ed = einsum('ijab,ijab->', tau, eris.pppp[:nocc, :nocc, nocc:, nocc:]) * 2.0
+    ex = - einsum('ijab,ijba->', tau, eris.pppp[:nocc, :nocc, nocc:, nocc:])
 
     ess = (ed * 0.5 + ex)
-    # NOTE: need double check
-    ess += einsum_(mycc, "ai,ia->", eris.fock[nocc:, :nocc], t1) * 2.0
+    ess += einsum("ai,ia->", eris.fock[nocc:, :nocc], t1) * 2.0
     eos = ed * 0.5
 
     if abs((ess + eos).imag) > 1e-4:
@@ -450,70 +436,63 @@ def energy_rhf(mycc, tamps, eris=None):
     mycc.e_corr = lib.tag_array((ess + eos).real, e_corr_ss=ess.real, e_corr_os=eos.real)
     return mycc.e_corr
 
-def intermediates_t1t2_(mycc, t2):
+def intermediates_t1t2(mycc, t1_fock, t1_eris, t2):
     '''Intermediates for the T1 and T2 residual equation.'''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc = mycc.nocc
-    t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
-    tf_vv = t1_fock[nocc:, nocc:].copy()
-    einsum_(mycc, 'kldc,kldb->bc', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=tf_vv, alpha=-2.0, beta=1.0)
-    einsum_(mycc, 'klcd,kldb->bc', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=tf_vv, alpha=1.0, beta=1.0)
-
-    tf_oo = t1_fock[:nocc, :nocc].copy()
-    einsum_(mycc, 'lkcd,ljcd->kj', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=tf_oo, alpha=2.0, beta=1.0)
-    einsum_(mycc, 'lkdc,ljcd->kj', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=tf_oo, alpha=-1.0, beta=1.0)
-
+    F_vv = t1_fock[nocc:, nocc:].copy()
+    einsum('kldc,kldb->bc', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=F_vv, alpha=-2.0, beta=1.0)
+    einsum('klcd,kldb->bc', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=F_vv, alpha=1.0, beta=1.0)
+    F_oo = t1_fock[:nocc, :nocc].copy()
+    einsum('lkcd,ljcd->kj', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=F_oo, alpha=2.0, beta=1.0)
+    einsum('lkdc,ljcd->kj', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=F_oo, alpha=-1.0, beta=1.0)
     W_oooo = t1_eris[:nocc, :nocc, :nocc, :nocc].copy()
-    einsum_(mycc, 'klcd,ijcd->klij', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_oooo, alpha=1.0, beta=1.0)
-
+    einsum('klcd,ijcd->klij', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_oooo, alpha=1.0, beta=1.0)
     # TODO: Derive an alternative expression for this term
     W_ovvo = - t1_eris[:nocc, nocc:, nocc:, :nocc]
-    einsum_(mycc, 'klcd,ilad->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=-1.0, beta=1.0)
-    einsum_(mycc, 'kldc,ilad->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=0.5, beta=1.0)
-    einsum_(mycc, 'klcd,ilda->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=0.5, beta=1.0)
-
+    einsum('klcd,ilad->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=-1.0, beta=1.0)
+    einsum('kldc,ilad->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=0.5, beta=1.0)
+    einsum('klcd,ilda->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=0.5, beta=1.0)
     # TODO: Derive an alternative expression for this term
     W_ovov = - t1_eris[:nocc, nocc:, :nocc, nocc:]
-    einsum_(mycc, 'kldc,liad->kaic', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovov, alpha=0.5, beta=1.0)
+    einsum('kldc,liad->kaic', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovov, alpha=0.5, beta=1.0)
+    return F_oo, F_vv, W_oooo, W_ovvo, W_ovov
 
-    mycc.tf_vv = tf_vv
-    mycc.tf_oo = tf_oo
-    mycc.W_oooo = W_oooo
-    mycc.W_ovvo = W_ovvo
-    mycc.W_ovov = W_ovov
-    return mycc
-
-def compute_r1r2(mycc, t2):
+def compute_r1r2(mycc, t1_fock, t1_eris, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, t2):
     '''Compute r1 and r2 without the contributions from T3 amplitudes.
     r2 will require a symmetry restoration step afterward.
     '''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc = mycc.nocc
-    t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
     c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
     # R1
-    r1 = t1_fock[nocc:, :nocc].T
-    einsum_(mycc, 'kc,ikac->ia', t1_fock[:nocc, nocc:], c_t2, out=r1, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'akcd,ikcd->ia', t1_eris[nocc:, :nocc, nocc:, nocc:], c_t2, out=r1, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'klic,klac->ia', t1_eris[:nocc, :nocc, :nocc, nocc:], c_t2, out=r1, alpha=-1.0, beta=1.0)
+    r1 = t1_fock[nocc:, :nocc].T.copy()
+    einsum('kc,ikac->ia', t1_fock[:nocc, nocc:], c_t2, out=r1, alpha=1.0, beta=1.0)
+    einsum('akcd,ikcd->ia', t1_eris[nocc:, :nocc, nocc:, nocc:], c_t2, out=r1, alpha=1.0, beta=1.0)
+    einsum('klic,klac->ia', t1_eris[:nocc, :nocc, :nocc, nocc:], c_t2, out=r1, alpha=-1.0, beta=1.0)
     # R2
     r2 = 0.5 * t1_eris[nocc:, nocc:, :nocc, :nocc].T
-    einsum_(mycc, "bc,ijac->ijab", mycc.tf_vv, t2, out=r2, alpha=1.0, beta=1.0)
-    einsum_(mycc, "kj,ikab->ijab", mycc.tf_oo, t2, out=r2, alpha=-1.0, beta=1.0)
-    einsum_(mycc, "abcd,ijcd->ijab", t1_eris[nocc:, nocc:, nocc:, nocc:], t2, out=r2, alpha=0.5, beta=1.0)
-    einsum_(mycc, "klij,klab->ijab", mycc.W_oooo, t2, out=r2, alpha=0.5, beta=1.0)
-    einsum_(mycc, "kajc,ikcb->ijab", mycc.W_ovov, t2, out=r2, alpha=1.0, beta=1.0)
-    einsum_(mycc, "kaci,kjcb->ijab", mycc.W_ovvo, t2, out=r2, alpha=-2.0, beta=1.0)
-    einsum_(mycc, "kaic,kjcb->ijab", mycc.W_ovov, t2, out=r2, alpha=1.0, beta=1.0)
-    einsum_(mycc, "kaci,jkcb->ijab", mycc.W_ovvo, t2, out=r2, alpha=1.0, beta=1.0)
+    einsum("bc,ijac->ijab", F_vv, t2, out=r2, alpha=1.0, beta=1.0)
+    einsum("kj,ikab->ijab", F_oo, t2, out=r2, alpha=-1.0, beta=1.0)
+    einsum("abcd,ijcd->ijab", t1_eris[nocc:, nocc:, nocc:, nocc:], t2, out=r2, alpha=0.5, beta=1.0)
+    einsum("klij,klab->ijab", W_oooo, t2, out=r2, alpha=0.5, beta=1.0)
+    einsum("kajc,ikcb->ijab", W_ovov, t2, out=r2, alpha=1.0, beta=1.0)
+    einsum("kaci,kjcb->ijab", W_ovvo, t2, out=r2, alpha=-2.0, beta=1.0)
+    einsum("kaic,kjcb->ijab", W_ovov, t2, out=r2, alpha=1.0, beta=1.0)
+    einsum("kaci,jkcb->ijab", W_ovvo, t2, out=r2, alpha=1.0, beta=1.0)
     return r1, r2
 
-def r1r2_add_t3_tril_(mycc, t3, r1, r2):
+def r1r2_add_t3_tri_(mycc, r1, r2, t1_fock, t1_eris, t3):
     '''Add the T3 contributions to r1 and r2. T3 amplitudes are stored in triangular form.'''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize = mycc.blksize
-    t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
     # r1
     t3_tmp = np.empty((blksize,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     for k0, k1 in lib.prange(0, nocc, blksize):
@@ -524,7 +503,7 @@ def r1r2_add_t3_tril_(mycc, t3, r1, r2):
                 bi = i1 - i0
                 _unpack_t3_(mycc, t3, t3_tmp, i0, i1, j0, j1, k0, k1)
                 t3_spin_summation_inplace_(t3_tmp, blksize**3, nvir, "P3_422", 1.0, 0.0)
-                einsum_(mycc, 'jkbc,ijkabc->ia', t1_eris[j0:j1, k0:k1, nocc:, nocc:],
+                einsum('jkbc,ijkabc->ia', t1_eris[j0:j1, k0:k1, nocc:, nocc:],
                     t3_tmp[:bi, :bj, :bk], out=r1[i0:i1, :], alpha=0.5, beta=1.0)
     t3_tmp = None
     # r2
@@ -537,13 +516,14 @@ def r1r2_add_t3_tril_(mycc, t3, r1, r2):
                 bi = i1 - i0
                 _unpack_t3_(mycc, t3, t3_tmp, k0, k1, i0, i1, j0, j1)
                 t3_spin_summation_inplace_(t3_tmp, blksize**3, nvir, "P3_201", 1.0, 0.0)
-                einsum_(mycc, "kc,kijcab->ijab", t1_fock[k0:k1, nocc:], t3_tmp[:bk, :bi, :bj],
+                einsum("kc,kijcab->ijab", t1_fock[k0:k1, nocc:], t3_tmp[:bk, :bi, :bj],
                     out=r2[i0:i1, j0:j1, :, :], alpha=0.5, beta=1.0)
-                einsum_(mycc, "bkcd,kijdac->ijab", t1_eris[nocc:, k0:k1, nocc:, nocc:],
+                einsum("bkcd,kijdac->ijab", t1_eris[nocc:, k0:k1, nocc:, nocc:],
                         t3_tmp[:bk, :bi, :bj], out=r2[i0:i1, j0:j1, :, :], alpha=1.0, beta=1.0)
-                einsum_(mycc, "jklc,kijcab->ilab", t1_eris[j0:j1, k0:k1, :nocc, nocc:],
+                einsum("jklc,kijcab->ilab", t1_eris[j0:j1, k0:k1, :nocc, nocc:],
                         t3_tmp[:bk, :bi, :bj], out=r2[i0:i1, :, :, :], alpha=-1.0, beta=1.0)
     t3_tmp = None
+    return r1, r2
 
 def r1r2_divide_e_(mycc, r1, r2, mo_energy):
     nocc = mycc.nocc
@@ -551,51 +531,50 @@ def r1r2_divide_e_(mycc, r1, r2, mo_energy):
     r1 /= eia
     eijab = eia[:, None, :, None] + eia[None, :, None, :]
     r2 /= eijab
+    return r1, r2
 
-def intermediates_t3_(mycc, t2):
+def intermediates_t3(mycc, t1_fock, t1_eris, t2):
     '''Intermediates for the T3 residual equation (excluding T3 contributions).'''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc = mycc.nocc
-    t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
+
     c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
 
-    W_vvvv_tc = t1_eris[nocc:, nocc:, nocc:, nocc:].copy()
-    einsum_(mycc, 'lmde,lmab->abde', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_vvvv_tc, alpha=1.0, beta=1.0)
+    W_vvvv = t1_eris[nocc:, nocc:, nocc:, nocc:].copy()
+    einsum('lmde,lmab->abde', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_vvvv, alpha=1.0, beta=1.0)
 
-    W_vooo_tc = t1_eris[nocc:, :nocc, :nocc, :nocc].copy()
-    einsum_(mycc, 'ld,ijad->alij', t1_fock[:nocc, nocc:], t2, out=W_vooo_tc, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'mldj,mida->alij', t1_eris[:nocc, :nocc, nocc:, :nocc], c_t2, out=W_vooo_tc, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'mljd,mida->alij', t1_eris[:nocc, :nocc, :nocc, nocc:], c_t2, out=W_vooo_tc, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'mljd,imda->alij', t1_eris[:nocc, :nocc, :nocc, nocc:], t2, out=W_vooo_tc, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'mlid,jmda->alij', t1_eris[:nocc, :nocc, :nocc, nocc:], t2, out=W_vooo_tc, alpha=-1.0, beta=1.0)
-    einsum_(mycc, 'alde,ijde->alij', t1_eris[nocc:, :nocc, nocc:, nocc:], t2, out=W_vooo_tc, alpha=1.0, beta=1.0)
+    W_vooo = t1_eris[nocc:, :nocc, :nocc, :nocc].copy()
+    einsum('ld,ijad->alij', t1_fock[:nocc, nocc:], t2, out=W_vooo, alpha=1.0, beta=1.0)
+    einsum('mldj,mida->alij', t1_eris[:nocc, :nocc, nocc:, :nocc], c_t2, out=W_vooo, alpha=1.0, beta=1.0)
+    einsum('mljd,mida->alij', t1_eris[:nocc, :nocc, :nocc, nocc:], c_t2, out=W_vooo, alpha=-0.5, beta=1.0)
+    einsum('mljd,imda->alij', t1_eris[:nocc, :nocc, :nocc, nocc:], t2, out=W_vooo, alpha=-0.5, beta=1.0)
+    einsum('mlid,jmda->alij', t1_eris[:nocc, :nocc, :nocc, nocc:], t2, out=W_vooo, alpha=-1.0, beta=1.0)
+    einsum('alde,ijde->alij', t1_eris[nocc:, :nocc, nocc:, nocc:], t2, out=W_vooo, alpha=1.0, beta=1.0)
 
-    W_vvvo_tc = t1_eris[nocc:, nocc:, nocc:, :nocc].copy()
-    einsum_(mycc, 'laed,ljeb->abdj', t1_eris[:nocc, nocc:, nocc:, nocc:], c_t2, out=W_vvvo_tc, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'lade,ljeb->abdj', t1_eris[:nocc, nocc:, nocc:, nocc:], c_t2, out=W_vvvo_tc, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'lade,jleb->abdj', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_vvvo_tc, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'lbde,jlea->abdj', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_vvvo_tc, alpha=-1.0, beta=1.0)
-    einsum_(mycc, 'lmdj,lmab->abdj', t1_eris[:nocc, :nocc, nocc:, :nocc], t2, out=W_vvvo_tc, alpha=1.0, beta=1.0)
+    W_vvvo = t1_eris[nocc:, nocc:, nocc:, :nocc].copy()
+    einsum('laed,ljeb->abdj', t1_eris[:nocc, nocc:, nocc:, nocc:], c_t2, out=W_vvvo, alpha=1.0, beta=1.0)
+    einsum('lade,ljeb->abdj', t1_eris[:nocc, nocc:, nocc:, nocc:], c_t2, out=W_vvvo, alpha=-0.5, beta=1.0)
+    einsum('lade,jleb->abdj', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_vvvo, alpha=-0.5, beta=1.0)
+    einsum('lbde,jlea->abdj', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_vvvo, alpha=-1.0, beta=1.0)
+    einsum('lmdj,lmab->abdj', t1_eris[:nocc, :nocc, nocc:, :nocc], t2, out=W_vvvo, alpha=1.0, beta=1.0)
 
-    W_ovvo_tc = (2.0 * t1_eris[:nocc, nocc:, nocc:, :nocc] - t1_eris[:nocc, nocc:, :nocc, nocc:].transpose(0, 1, 3, 2))
-    einsum_(mycc, 'mled,miea->ladi', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo_tc, alpha=2.0, beta=1.0)
-    einsum_(mycc, 'mlde,miea->ladi', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo_tc, alpha=-1.0, beta=1.0)
+    W_ovvo = (2.0 * t1_eris[:nocc, nocc:, nocc:, :nocc] - t1_eris[:nocc, nocc:, :nocc, nocc:].transpose(0, 1, 3, 2))
+    einsum('mled,miea->ladi', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo, alpha=2.0, beta=1.0)
+    einsum('mlde,miea->ladi', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo, alpha=-1.0, beta=1.0)
 
-    W_ovov_tc = t1_eris[:nocc, nocc:, :nocc, nocc:].copy()
-    einsum_(mycc, 'mlde,imea->laid', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovov_tc, alpha=-1.0, beta=1.0)
+    W_ovov = t1_eris[:nocc, nocc:, :nocc, nocc:].copy()
+    einsum('mlde,imea->laid', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovov, alpha=-1.0, beta=1.0)
+    return W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv
 
-    mycc.W_vvvv_tc = W_vvvv_tc
-    mycc.W_vooo_tc = W_vooo_tc
-    mycc.W_vvvo_tc = W_vvvo_tc
-    mycc.W_ovvo_tc = W_ovvo_tc
-    mycc.W_ovov_tc = W_ovov_tc
-    return mycc
-
-def intermediates_t3_add_t3_tril_(mycc, t3):
+def intermediates_t3_add_t3_tri_(mycc, W_vooo, W_vvvo, t1_eris, t3):
     '''Add the T3-dependent contributions to the T3 intermediates, with T3 stored in triangular form.'''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
+
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize = mycc.blksize
-    t1_eris = mycc.t1_eris
 
     t3_tmp = np.empty((blksize,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     for j0, j1 in lib.prange(0, nocc, blksize):
@@ -606,20 +585,22 @@ def intermediates_t3_add_t3_tril_(mycc, t3):
                 bm = m1 - m0
                 _unpack_t3_(mycc, t3, t3_tmp, m0, m1, j0, j1, l0, l1)
                 t3_spin_summation_inplace_(t3_tmp, blksize**3, nvir, "P3_201", 1.0, 0.0)
-                einsum_(mycc, 'imde,mjlead->aijl', t1_eris[:nocc, m0:m1, nocc:, nocc:],
-                    t3_tmp[:bm, :bj, :bl], out=mycc.W_vooo_tc[:, :, j0:j1, l0:l1], alpha=1.0, beta=1.0)
-                einsum_(mycc, 'lmde,mjleba->abdj', t1_eris[l0:l1, m0:m1, nocc:, nocc:],
-                    t3_tmp[:bm, :bj, :bl], out=mycc.W_vvvo_tc[:, :, :, j0:j1], alpha=-1.0, beta=1.0)
+                einsum('imde,mjlead->aijl', t1_eris[:nocc, m0:m1, nocc:, nocc:],
+                    t3_tmp[:bm, :bj, :bl], out=W_vooo[:, :, j0:j1, l0:l1], alpha=1.0, beta=1.0)
+                einsum('lmde,mjleba->abdj', t1_eris[l0:l1, m0:m1, nocc:, nocc:],
+                    t3_tmp[:bm, :bj, :bl], out=W_vvvo[:, :, :, j0:j1], alpha=-1.0, beta=1.0)
     t3_tmp = None
-    return mycc
+    return W_vooo, W_vvvo
 
-def compute_r3_tril(mycc, t2, t3):
+def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv, t2, t3):
     '''Compute r3 with triangular-stored T3 amplitudes; r3 is returned in triangular form as well.
     r3 will require a symmetry restoration step afterward.
     '''
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize, blksize_oovv, blksize_oooo = mycc.blksize, mycc.blksize_oovv, mycc.blksize_oooo
@@ -636,47 +617,44 @@ def compute_r3_tril(mycc, t2, t3):
             for i0, i1 in lib.prange(0, j1, blksize):
                 bi = i1 - i0
                 # R3: P0
-                einsum_(mycc, 'abdj,ikdc->ijkabc', mycc.W_vvvo_tc[..., j0:j1], t2[i0:i1, k0:k1],
+                einsum('abdj,ikdc->ijkabc', W_vvvo[..., j0:j1], t2[i0:i1, k0:k1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=0.0)
-                einsum_(mycc, 'acdk,ijdb->ijkabc', mycc.W_vvvo_tc[..., k0:k1], t2[i0:i1, j0:j1],
+                einsum('acdk,ijdb->ijkabc', W_vvvo[..., k0:k1], t2[i0:i1, j0:j1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
-                einsum_(mycc, 'badi,jkdc->ijkabc', mycc.W_vvvo_tc[..., i0:i1], t2[j0:j1, k0:k1],
+                einsum('badi,jkdc->ijkabc', W_vvvo[..., i0:i1], t2[j0:j1, k0:k1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
-                einsum_(mycc, 'bcdk,jida->ijkabc', mycc.W_vvvo_tc[..., k0:k1], t2[j0:j1, i0:i1],
+                einsum('bcdk,jida->ijkabc', W_vvvo[..., k0:k1], t2[j0:j1, i0:i1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
-                einsum_(mycc, 'cadi,kjdb->ijkabc', mycc.W_vvvo_tc[..., i0:i1], t2[k0:k1, j0:j1],
+                einsum('cadi,kjdb->ijkabc', W_vvvo[..., i0:i1], t2[k0:k1, j0:j1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
-                einsum_(mycc, 'cbdj,kida->ijkabc', mycc.W_vvvo_tc[..., j0:j1], t2[k0:k1, i0:i1],
+                einsum('cbdj,kida->ijkabc', W_vvvo[..., j0:j1], t2[k0:k1, i0:i1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
                 # R3: P1
-                einsum_(mycc, 'alij,lkbc->ijkabc', mycc.W_vooo_tc[:, :, i0:i1, j0:j1], t2[:, k0:k1, :, :],
+                einsum('alij,lkbc->ijkabc', W_vooo[:, :, i0:i1, j0:j1], t2[:, k0:k1, :, :],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum_(mycc, 'alik,ljcb->ijkabc', mycc.W_vooo_tc[:, :, i0:i1, k0:k1], t2[:, j0:j1, :, :],
+                einsum('alik,ljcb->ijkabc', W_vooo[:, :, i0:i1, k0:k1], t2[:, j0:j1, :, :],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum_(mycc, 'blji,lkac->ijkabc', mycc.W_vooo_tc[:, :, j0:j1, i0:i1], t2[:, k0:k1, :, :],
+                einsum('blji,lkac->ijkabc', W_vooo[:, :, j0:j1, i0:i1], t2[:, k0:k1, :, :],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum_(mycc, 'bljk,lica->ijkabc', mycc.W_vooo_tc[:, :, j0:j1, k0:k1], t2[:, i0:i1, :, :],
+                einsum('bljk,lica->ijkabc', W_vooo[:, :, j0:j1, k0:k1], t2[:, i0:i1, :, :],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum_(mycc, 'clki,ljab->ijkabc', mycc.W_vooo_tc[:, :, k0:k1, i0:i1], t2[:, j0:j1, :, :],
+                einsum('clki,ljab->ijkabc', W_vooo[:, :, k0:k1, i0:i1], t2[:, j0:j1, :, :],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum_(mycc, 'clkj,liba->ijkabc', mycc.W_vooo_tc[:, :, k0:k1, j0:j1], t2[:, i0:i1, :, :],
+                einsum('clkj,liba->ijkabc', W_vooo[:, :, k0:k1, j0:j1], t2[:, i0:i1, :, :],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 # R3: P2
                 _unpack_t3_(mycc, t3, t3_tmp, i0, i1, j0, j1, k0, k1)
-                einsum_(mycc, 'ad,ijkdbc->ijkabc', mycc.tf_vv, t3_tmp[:bi, :bj, :bk],
-                    out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
+                einsum('ad,ijkdbc->ijkabc', F_vv, t3_tmp[:bi, :bj, :bk], out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
                 _unpack_t3_(mycc, t3, t3_tmp, j0, j1, i0, i1, k0, k1)
-                einsum_(mycc, 'bd,jikdac->ijkabc', mycc.tf_vv, t3_tmp[:bj, :bi, :bk],
-                    out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
+                einsum('bd,jikdac->ijkabc', F_vv, t3_tmp[:bj, :bi, :bk], out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
                 _unpack_t3_(mycc, t3, t3_tmp, k0, k1, j0, j1, i0, i1)
-                einsum_(mycc, 'cd,kjidba->ijkabc', mycc.tf_vv, t3_tmp[:bk, :bj, :bi],
-                    out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
+                einsum('cd,kjidba->ijkabc', F_vv, t3_tmp[:bk, :bj, :bi], out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
 
                 _accumulate_t3_(mycc, r3, r3_tmp, i0, i1, j0, j1, k0, k1, alpha=1.0, beta=1.0)
-        time2 = log.timer_debug1('t3: iter: W_vvvo, W_vooo, f_vv [%3d, %3d]:'%(k0, k1), *time2)
+        time2 = log.timer_debug1('t3: iter: W_vvvo, W_vooo, F_vv [%3d, %3d]:'%(k0, k1), *time2)
     t3_tmp = None
     r3_tmp = None
-    time1 = log.timer_debug1('t3: W_vvvo * t2, W_vooo * t2, f_vv * t3', *time1)
+    time1 = log.timer_debug1('t3: W_vvvo * t2, W_vooo * t2, F_vv * t3', *time1)
 
     # R3: P3 and P4
     t3_tmp = np.empty((nocc,) + (blksize_oovv,) * 2 + (nvir,) * 3, dtype=t3.dtype)
@@ -690,32 +668,32 @@ def compute_r3_tril(mycc, t2, t3):
                 bi = i1 - i0
                 # original
                 _unpack_t3_(mycc, t3, t3_tmp, 0, nocc, j0, j1, k0, k1, nocc, blksize_oovv, blksize_oovv)
-                einsum_(mycc, 'li,ljkabc->ijkabc', mycc.tf_oo[:, i0:i1], t3_tmp[:, :bj, :bk],
+                einsum('li,ljkabc->ijkabc', F_oo[:, i0:i1], t3_tmp[:, :bj, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=0.0)
                 t3_spin_summation_inplace_(t3_tmp, nocc * blksize_oovv**2, nvir, "P3_201", 1.0, 0.0)
-                einsum_(mycc, 'ladi,ljkdbc->ijkabc', mycc.W_ovvo_tc[..., i0:i1], t3_tmp[:, :bj, :bk],
+                einsum('ladi,ljkdbc->ijkabc', W_ovvo[..., i0:i1], t3_tmp[:, :bj, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=0.5, beta=1.0)
                 # ai <-> bj
                 _unpack_t3_(mycc, t3, t3_tmp, 0, nocc, i0, i1, k0, k1, nocc, blksize_oovv, blksize_oovv)
-                einsum_(mycc, 'lj,likbac->ijkabc', mycc.tf_oo[:, j0:j1], t3_tmp[:, :bi, :bk],
+                einsum('lj,likbac->ijkabc', F_oo[:, j0:j1], t3_tmp[:, :bi, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 t3_spin_summation_inplace_(t3_tmp, nocc * blksize_oovv**2, nvir, "P3_201", 1.0, 0.0)
-                einsum_(mycc, 'lbdj,likdac->ijkabc', mycc.W_ovvo_tc[..., j0:j1], t3_tmp[:, :bi, :bk],
+                einsum('lbdj,likdac->ijkabc', W_ovvo[..., j0:j1], t3_tmp[:, :bi, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=0.5, beta=1.0)
                 # ai <-> ck
                 _unpack_t3_(mycc, t3, t3_tmp, 0, nocc, j0, j1, i0, i1, nocc, blksize_oovv, blksize_oovv)
-                einsum_(mycc, 'lk,ljicba->ijkabc', mycc.tf_oo[:, k0:k1], t3_tmp[:, :bj, :bi],
+                einsum('lk,ljicba->ijkabc', F_oo[:, k0:k1], t3_tmp[:, :bj, :bi],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 t3_spin_summation_inplace_(t3_tmp, nocc * blksize_oovv**2, nvir, "P3_201", 1.0, 0.0)
-                einsum_(mycc, 'lcdk,ljidba->ijkabc', mycc.W_ovvo_tc[..., k0:k1], t3_tmp[:, :bj, :bi],
+                einsum('lcdk,ljidba->ijkabc', W_ovvo[..., k0:k1], t3_tmp[:, :bj, :bi],
                     out=r3_tmp[:bi, :bj, :bk], alpha=0.5, beta=1.0)
 
                 _accumulate_t3_(mycc, r3, r3_tmp, i0, i1, j0, j1, k0, k1,
                                     blksize_oovv, blksize_oovv, blksize_oovv, alpha=1.0, beta=1.0)
-        time2 = log.timer_debug1('t3: iter: f_oo, W_ovvo [%3d, %3d]:'%(k0, k1), *time2)
+        time2 = log.timer_debug1('t3: iter: F_oo, W_ovvo [%3d, %3d]:'%(k0, k1), *time2)
     t3_tmp = None
     r3_tmp = None
-    time1 = log.timer_debug1('t3: f_oo * t3, W_ovvo * t3', *time1)
+    time1 = log.timer_debug1('t3: F_oo * t3, W_ovvo * t3', *time1)
 
     # R3: P5 & P6
     t3_tmp = np.empty((blksize_oovv, nocc, blksize_oovv,) + (nvir,) * 3, dtype=t3.dtype)
@@ -729,36 +707,36 @@ def compute_r3_tril(mycc, t2, t3):
                 bi = i1 - i0
                 #
                 _unpack_t3_(mycc, t3, t3_tmp, j0, j1, 0, nocc, k0, k1, blksize_oovv, nocc, blksize_oovv)
-                einsum_(mycc, 'lbid,jlkdac->ijkabc', mycc.W_ovov_tc[:, :, i0:i1, :], t3_tmp[:bj, :, :bk],
+                einsum('lbid,jlkdac->ijkabc', W_ovov[:, :, i0:i1, :], t3_tmp[:bj, :, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=0.0)
                 _unpack_t3_(mycc, t3, t3_tmp, k0, k1, 0, nocc, j0, j1, blksize_oovv, nocc, blksize_oovv)
-                einsum_(mycc, 'lcid,kljdab->ijkabc', mycc.W_ovov_tc[:, :, i0:i1, :], t3_tmp[:bk, :, :bj],
+                einsum('lcid,kljdab->ijkabc', W_ovov[:, :, i0:i1, :], t3_tmp[:bk, :, :bj],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 # laid,jlkdbc + laid,kljdcb
                 _unpack_t3_pair_(mycc, t3, t3_tmp, j0, j1, 0, nocc, k0, k1)
-                einsum_(mycc, 'laid,jlkdbc->ijkabc', mycc.W_ovov_tc[:, :, i0:i1, :], t3_tmp[:bj, :, :bk],
+                einsum('laid,jlkdbc->ijkabc', W_ovov[:, :, i0:i1, :], t3_tmp[:bj, :, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-0.5, beta=1.0)
                 #
                 _unpack_t3_(mycc, t3, t3_tmp, i0, i1, 0, nocc, k0, k1, blksize_oovv, nocc, blksize_oovv)
-                einsum_(mycc, 'lajd,ilkdbc->ijkabc', mycc.W_ovov_tc[:, :, j0:j1, :], t3_tmp[:bi, :, :bk],
+                einsum('lajd,ilkdbc->ijkabc', W_ovov[:, :, j0:j1, :], t3_tmp[:bi, :, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 _unpack_t3_(mycc, t3, t3_tmp, k0, k1, 0, nocc, i0, i1, blksize_oovv, nocc, blksize_oovv)
-                einsum_(mycc, 'lcjd,klidba->ijkabc', mycc.W_ovov_tc[:, :, j0:j1, :], t3_tmp[:bk, :, :bi],
+                einsum('lcjd,klidba->ijkabc', W_ovov[:, :, j0:j1, :], t3_tmp[:bk, :, :bi],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 # lbjd,ilkdac + lbjd,klidca
                 _unpack_t3_pair_(mycc, t3, t3_tmp, i0, i1, 0, nocc, k0, k1)
-                einsum_(mycc, 'lbjd,ilkdac->ijkabc', mycc.W_ovov_tc[:, :, j0:j1, :], t3_tmp[:bi, :, :bk],
+                einsum('lbjd,ilkdac->ijkabc', W_ovov[:, :, j0:j1, :], t3_tmp[:bi, :, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-0.5, beta=1.0)
                 #
                 _unpack_t3_(mycc, t3, t3_tmp, i0, i1, 0, nocc, j0, j1, blksize_oovv, nocc, blksize_oovv)
-                einsum_(mycc, 'lakd,iljdcb->ijkabc', mycc.W_ovov_tc[:, :, k0:k1, :], t3_tmp[:bi, :, :bj],
+                einsum('lakd,iljdcb->ijkabc', W_ovov[:, :, k0:k1, :], t3_tmp[:bi, :, :bj],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 _unpack_t3_(mycc, t3, t3_tmp, j0, j1, 0, nocc, i0, i1, blksize_oovv, nocc, blksize_oovv)
-                einsum_(mycc, 'lbkd,jlidca->ijkabc', mycc.W_ovov_tc[:, :, k0:k1, :], t3_tmp[:bj, :, :bi],
+                einsum('lbkd,jlidca->ijkabc', W_ovov[:, :, k0:k1, :], t3_tmp[:bj, :, :bi],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 # lckd,iljdab + lckd,jlidba
                 _unpack_t3_pair_(mycc, t3, t3_tmp, i0, i1, 0, nocc, j0, j1)
-                einsum_(mycc, 'lckd,iljdab->ijkabc', mycc.W_ovov_tc[:, :, k0:k1, :], t3_tmp[:bi, :, :bj],
+                einsum('lckd,iljdab->ijkabc', W_ovov[:, :, k0:k1, :], t3_tmp[:bi, :, :bj],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-0.5, beta=1.0)
 
                 _accumulate_t3_(mycc, r3, r3_tmp, i0, i1, j0, j1, k0, k1,
@@ -783,14 +761,14 @@ def compute_r3_tril(mycc, t2, t3):
                     bj = j1 - j0
                     for i0, i1 in lib.prange(0, j1, blksize_oooo):
                         bi = i1 - i0
-                        einsum_(mycc, 'lmij,lmkabc->ijkabc', mycc.W_oooo[l0:l1, m0:m1, i0:i1, j0:j1],
+                        einsum('lmij,lmkabc->ijkabc', W_oooo[l0:l1, m0:m1, i0:i1, j0:j1],
                                 t3_tmp[:bl, :bm, k0:k1], out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=0.0)
-                        einsum_(mycc, 'lmik,lmjacb->ijkabc', mycc.W_oooo[l0:l1, m0:m1, i0:i1, k0:k1],
+                        einsum('lmik,lmjacb->ijkabc', W_oooo[l0:l1, m0:m1, i0:i1, k0:k1],
                                 t3_tmp[:bl, :bm, j0:j1], out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
-                        einsum_(mycc, 'lmjk,lmibca->ijkabc', mycc.W_oooo[l0:l1, m0:m1, j0:j1, k0:k1],
+                        einsum('lmjk,lmibca->ijkabc', W_oooo[l0:l1, m0:m1, j0:j1, k0:k1],
                                 t3_tmp[:bl, :bm, i0:i1], out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
                         _accumulate_t3_(mycc, r3, r3_tmp, i0, i1, j0, j1, k0, k1,
-                                            blksize_oooo, blksize_oooo, blksize_oooo, alpha=1.0, beta=1.0)
+                                        blksize_oooo, blksize_oooo, blksize_oooo, alpha=1.0, beta=1.0)
         time2 = log.timer_debug1('t3: iter: W_oooo [%3d, %3d]:'%(l0, l1), *time2)
     t3_tmp = None
     r3_tmp = None
@@ -805,13 +783,13 @@ def compute_r3_tril(mycc, t2, t3):
             for i0 in range(j0 + 1):
                 # ijk & jik
                 _unpack_t3_s_pair_(mycc, t3, t3_tmp_s, i0, j0, k0)
-                einsum_(mycc, 'abde,dec->abc', mycc.W_vvvv_tc, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=0.0)
+                einsum('abde,dec->abc', W_vvvv, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=0.0)
                 # ikj and kij
                 _unpack_t3_s_pair_(mycc, t3, t3_tmp_s, i0, k0, j0)
-                einsum_(mycc, 'acde,deb->abc', mycc.W_vvvv_tc, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=1.0)
+                einsum('acde,deb->abc', W_vvvv, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=1.0)
                 # jki and kji
                 _unpack_t3_s_pair_(mycc, t3, t3_tmp_s, j0, k0, i0)
-                einsum_(mycc, 'bcde,dea->abc', mycc.W_vvvv_tc, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=1.0)
+                einsum('bcde,dea->abc', W_vvvv, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=1.0)
                 _accumulate_t3_s_(mycc, r3, r3_tmp_s, i0, j0, k0, alpha=1.0, beta=1.0)
         time2 = log.timer_debug1('t3: iter: W_vvvv %3d:'%k0, *time2)
     t3_tmp_s = None
@@ -819,7 +797,7 @@ def compute_r3_tril(mycc, t2, t3):
     time1 = log.timer_debug1('t3: W_vvvv * t3', *time1)
     return r3
 
-def r3_tril_divide_e_(mycc, r3, mo_energy):
+def r3_tri_divide_e_(mycc, r3, mo_energy):
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize = mycc.blksize
@@ -838,8 +816,9 @@ def r3_tril_divide_e_(mycc, r3, mo_energy):
                 _accumulate_t3_(mycc, r3, r3_tmp, i0, i1, j0, j1, k0, k1)
     eijkabc_blk = None
     r3_tmp = None
+    return r3
 
-def update_amps_rccsdt_tril_(mycc, tamps, eris):
+def update_amps_rccsdt_tri_(mycc, tamps, eris):
     '''Update RCCSDT amplitudes in place, with T3 amplitudes stored in triangular form.'''
     assert (isinstance(eris, _PhysicistsERIs))
 
@@ -849,15 +828,18 @@ def update_amps_rccsdt_tril_(mycc, tamps, eris):
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     t1, t2, t3 = tamps
-    mo_energy = eris.mo_energy.copy()
+    # mo_energy = eris.mo_energy.copy()
+    mo_energy = eris.mo_energy
 
     # t1 t2
-    update_t1_fock_eris_(mycc, t1, eris)
+    t1_fock, t1_eris = update_t1_fock_eris(mycc, t1, eris)
     time1 = log.timer_debug1('update fock and eris', *time0)
-    intermediates_t1t2_(mycc, t2)
+    # intermediates_t1t2_(mycc, t1_fock, t1_eris, t2)
+    F_oo, F_vv, W_oooo, W_ovvo, W_ovov = intermediates_t1t2(mycc, t1_fock, t1_eris, t2)
     time1 = log.timer_debug1('t1t2: update intermediates', *time1)
-    r1, r2 = compute_r1r2(mycc, t2)
-    r1r2_add_t3_tril_(mycc, t3, r1, r2)
+    r1, r2 = compute_r1r2(mycc, t1_fock, t1_eris, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, t2)
+    W_ovvo, W_ovov = None, None
+    r1r2_add_t3_tri_(mycc, r1, r2, t1_fock, t1_eris, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
     # symmetrize r2
     r2 += r2.transpose(1, 0, 3, 2)
@@ -874,19 +856,20 @@ def update_amps_rccsdt_tril_(mycc, tamps, eris):
     time0 = log.timer_debug1('t1t2 total', *time0)
 
     # t3
-    intermediates_t3_(mycc, t2)
-    intermediates_t3_add_t3_tril_(mycc, t3)
-    mycc.t1_eris = None
+    W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = intermediates_t3(mycc, t1_fock, t1_eris, t2)
+    intermediates_t3_add_t3_tri_(mycc, W_vooo, W_vvvo, t1_eris, t3)
+    t1_fock, t1_eris = None, None
     time1 = log.timer_debug1('t3: update intermediates', *time0)
-    r3 = compute_r3_tril(mycc, t2, t3)
+    r3 = compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv, t2, t3)
+    F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = (None,) * 8
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrize r3
-    symmetrize_tamps_tril_(r3, nocc)
+    symmetrize_tamps_tri_(r3, nocc)
     t3_spin_summation_inplace_(r3, r3.shape[0], nvir, "P3_full", -1.0 / 6.0, 1.0)
-    purify_tamps_tril_(r3, nocc)
+    purify_tamps_tri_(r3, nocc)
     time1 = log.timer_debug1('t3: symmetrize r3', *time1)
     # divide by eijkabc
-    r3_tril_divide_e_(mycc, r3, mo_energy)
+    r3_tri_divide_e_(mycc, r3, mo_energy)
     time1 = log.timer_debug1('t3: divide r3 by eijkabc', *time1)
 
     res_norm.append(np.linalg.norm(r3))
@@ -917,7 +900,7 @@ def amplitudes_to_vector_rhf(mycc, tamps):
 def vector_to_amplitudes_rhf(mycc, vector):
     '''Reconstruct T-amplitudes from a vector, expanding the stored unique elements into the full tensor.'''
     if mycc.unique_tamps_map is None:
-        mycc.build_unique_tamps_map_()
+        mycc.unique_tamps_map = mycc.build_unique_tamps_map()
 
     from math import prod, factorial
     nx = lambda n, order: prod(n + i for i in range(order)) // factorial(order)
@@ -934,34 +917,34 @@ def vector_to_amplitudes_rhf(mycc, vector):
     except ValueError:
         raise ValueError("Mismatch between vector size and tamps size")
     # NOTE: Special case for two-electron systems where T3 amplitudes are empty (zero-size)
-    if mycc.do_diis_maxT: endpoint = len(cum_sizes) - 1
+    if mycc.do_diis_max_t: endpoint = len(cum_sizes) - 1
     tamps = [None] * endpoint
     for i in range(endpoint):
-        if (i == mycc.cc_order - 1) and mycc.do_tril_maxT:
+        if (i == mycc.cc_order - 1) and mycc.do_tri_max_t:
             t = np.zeros((nx(nocc, i + 1),) + (nvir,) * (i + 1), dtype=vector.dtype)
         else:
             t = np.zeros((nocc,) * (i + 1) + (nvir,) * (i + 1), dtype=vector.dtype)
         idx = (*mycc.unique_tamps_map[i][0], *[slice(None)] * (i + 1))
         t[idx] = vector[cum_sizes[i] : cum_sizes[i + 1]].reshape((-1,) + (nvir,) * (i + 1))
-        do_tril = mycc.do_tril_maxT and (i == mycc.cc_order - 1)
-        restore_t_(t, nocc, order=i + 1, do_tril=do_tril, unique_tamps_map=mycc.unique_tamps_map[i])
+        do_tri = mycc.do_tri_max_t and (i == mycc.cc_order - 1)
+        restore_t_(t, nocc, order=i + 1, do_tri=do_tri, unique_tamps_map=mycc.unique_tamps_map[i])
         tamps[i] = t
     return tamps
 
-def restore_t_(t, nocc, order=1, do_tril=False, unique_tamps_map=None):
+def restore_t_(t, nocc, order=1, do_tri=False, unique_tamps_map=None):
     if order >= 5:
         raise NotImplementedError("restore_t function only works up to T4 amplitudes")
     if order == 2:
-        if do_tril:
+        if do_tri:
             raise NotImplementedError
         else:
             idx = (*unique_tamps_map[1], *[slice(None)] * order)
             t[idx] *= (1.0 / 2.0)
             t += t.transpose(1, 0, 3, 2)
     if order == 3:
-        if do_tril:
-            symmetrize_tamps_tril_(t, nocc)
-            purify_tamps_tril_(t, nocc)
+        if do_tri:
+            symmetrize_tamps_tri_(t, nocc)
+            purify_tamps_tri_(t, nocc)
             return
         else:
             idx = (*unique_tamps_map[1], *[slice(None)] * order)
@@ -973,9 +956,9 @@ def restore_t_(t, nocc, order=1, do_tril=False, unique_tamps_map=None):
             t3_perm_symmetrize_inplace_(t, nocc, nvir, 1.0, 0.0)
             purify_tamps_(t)
     elif order == 4:
-        if do_tril:
-            symmetrize_tamps_tril_(t, nocc)
-            purify_tamps_tril_(t, nocc)
+        if do_tri:
+            symmetrize_tamps_tri_(t, nocc)
+            purify_tamps_tri_(t, nocc)
         else:
             idx = (*unique_tamps_map[1], *[slice(None)] * order)
             t[idx] *= (1.0 / 2.0)
@@ -990,6 +973,7 @@ def restore_t_(t, nocc, order=1, do_tril=False, unique_tamps_map=None):
             t4_perm_symmetrize_inplace_(t, nocc, nvir, 1.0, 0.0)
             from pyscf.cc.rccsdt_highm import purify_tamps_
             purify_tamps_(t)
+    return t
 
 def run_diis(mycc, tamps, istep, normt, de, adiis):
     if (adiis and istep >= mycc.diis_start_cycle and abs(de) < mycc.diis_start_energy_diff):
@@ -1037,7 +1021,7 @@ def kernel(mycc, eris=None, tamps=None, tol=1e-8, tolnormt=1e-6, max_cycle=50, v
         if mycc.iterative_damping < 1.0:
             raise NotImplementedError("Damping is not implemented")
 
-        if mycc.do_diis_maxT:
+        if mycc.do_diis_max_t:
             tamps = mycc.run_diis(tamps, istep, normt, e_corr - e_corr_old, adiis)
         else:
             tamps[:mycc.cc_order - 1] = mycc.run_diis(tamps[:mycc.cc_order - 1], istep, normt,
@@ -1076,11 +1060,11 @@ def restore_from_diis_(mycc, diis_file, inplace=True):
 
     ccvec = adiis.extrapolate()
     tamps = mycc.vector_to_amplitudes(ccvec)
-    if mycc.do_diis_maxT:
+    if mycc.do_diis_max_t:
         mycc.tamps = tamps
     else:
-        mycc.tamps[ : cc_order - 1] = tamps
-        if mycc.do_tril_maxT:
+        mycc.tamps[:cc_order - 1] = tamps
+        if mycc.do_tri_max_t:
             mycc.tamp[-1] = np.zeros((nx(nocc, cc_order),) + (nvir,) * cc_order, dtype=ccvec.dtype)
         else:
             mycc.tamp[-1] = np.zeros((nocc,) * cc_order + (nvir,) * cc_order, dtype=ccvec.dtype)
@@ -1088,13 +1072,13 @@ def restore_from_diis_(mycc, diis_file, inplace=True):
         mycc.diis = adiis
     return mycc
 
-def ao2mo_rccsdt(mycc, mo_coeff=None):
+def _ao2mo_rcc(mycc, mo_coeff=None):
     if mycc._scf._eri is not None:
         logger.note(mycc, '_make_eris_incore_' + mycc.__class__.__name__)
-        return _make_eris_incore_rccsdt(mycc, mo_coeff)
+        return _make_eris_incore_rcc(mycc, mo_coeff)
     elif getattr(mycc._scf, 'with_df', None):
         logger.note(mycc, '_make_df_eris_incore_' + mycc.__class__.__name__)
-        return _make_df_eris_incore_rccsdt(mycc, mo_coeff)
+        return _make_df_eris_incore_rcc(mycc, mo_coeff)
     else:
         raise ValueError()
 
@@ -1110,7 +1094,7 @@ def _finalize(mycc):
     logger.note(mycc, 'E_corr(oppo-spin) = %.15g', mycc.e_corr_os)
     return mycc
 
-def build_unique_tamps_map_rhf_(mycc):
+def build_unique_tamps_map_rhf(mycc):
     '''Build the mapping for the symmetry-unique part of the T-amplitudes.'''
     assert mycc.cc_order in (3, 4), "cc_order must be 3 or 4"
     nocc = mycc.nocc
@@ -1120,17 +1104,17 @@ def build_unique_tamps_map_rhf_(mycc):
     # t2
     unique_tamps_map.append([np.tril_indices(nocc), np.diag_indices(nocc)])
     # t3
-    if mycc.cc_order == 3 and mycc.do_diis_maxT and mycc.do_tril_maxT:
+    if mycc.cc_order == 3 and mycc.do_diis_max_t and mycc.do_tri_max_t:
         unique_tamps_map.append([[slice(None)]])
-    elif (mycc.cc_order == 3 and mycc.do_diis_maxT and not mycc.do_tril_maxT) or mycc.cc_order == 4:
+    elif (mycc.cc_order == 3 and mycc.do_diis_max_t and not mycc.do_tri_max_t) or mycc.cc_order == 4:
         i, j, k = np.meshgrid(np.arange(nocc), np.arange(nocc), np.arange(nocc), indexing='ij')
         mask_all = (i <= j) & (j <= k)
         mask_three = (i == j) & (j == k)
         mask_two = ((i == j) | (j == k) | (i == k)) & (~mask_three) & mask_all
         unique_tamps_map.append([np.where(mask_all), np.where(mask_two), np.where(mask_three)])
     # t4
-    if mycc.cc_order == 4 and mycc.do_diis_maxT:
-        if mycc.do_tril_maxT:
+    if mycc.cc_order == 4 and mycc.do_diis_max_t:
+        if mycc.do_tri_max_t:
             unique_tamps_map.append([[slice(None)]])
         else:
             i, j, k, l = np.meshgrid(np.arange(nocc), np.arange(nocc), np.arange(nocc), np.arange(nocc), indexing='ij')
@@ -1142,14 +1126,14 @@ def build_unique_tamps_map_rhf_(mycc):
                         | ((i < j) & (j < k) & (k == l))) & mask_all
             unique_tamps_map.append([np.where(mask_all), np.where(mask_two), np.where(mask_three),
                                     np.where(mask_three_2), np.where(mask_four)])
-    mycc.unique_tamps_map = unique_tamps_map
+    return unique_tamps_map
 
 def dump_flags(mycc, verbose=None):
     log = logger.new_logger(mycc, verbose)
     log.info('')
     log.info('******** %s ********', mycc.__class__)
     log.info('%s nocc = %s, nmo = %s', mycc.__class__.__name__, mycc.nocc, mycc.nmo)
-    if mycc.do_tril_maxT:
+    if mycc.do_tri_max_t:
         text = '<='.join('ijklml'[:mycc.cc_order])
         log.info("Allocating only the %s part of the T%d amplitude in memory", text, mycc.cc_order)
     else:
@@ -1159,7 +1143,7 @@ def dump_flags(mycc, verbose=None):
     log.info('max_cycle = %d', mycc.max_cycle)
     log.info('conv_tol = %g', mycc.conv_tol)
     log.info('conv_tol_normt = %s', mycc.conv_tol_normt)
-    if mycc.do_diis_maxT:
+    if mycc.do_diis_max_t:
         log.info('diis with the T%d amplitude', mycc.cc_order)
     else:
         log.info('diis without the T%d amplitude', mycc.cc_order)
@@ -1181,64 +1165,80 @@ def vector_size_rhf(mycc, nmo=None, nocc=None):
     if nmo is None: nmo = mycc.nmo
     nvir = nmo - nocc
     tamps_size = [0]
-    # TODO: Should this function take `do_diis_maxT` into account?
+    # TODO: Should this function take `do_diis_max_t` into account?
     for i in range(1, mycc.cc_order + 1):
         tamps_size.append(nx(nocc, i) * nvir ** i)
     cum_sizes = np.cumsum(tamps_size)
     return cum_sizes[-1]
 
+def format_size(i, suffix='B'):
+    if i < 1000:
+        return "%d %s" % (i, suffix)
+    else:
+        a = 1024
+        for pf in "KMGTPEZY":
+            p = 2
+            for k in [10, 100, 1000]:
+                if i < k * a:
+                    return "%%.%df %%s%%s" % p % (i / a, pf, suffix)
+                p -= 1
+            a *= 1024
+    return "??? " + suffix
+
 def memory_estimate_log_rccsdt(mycc):
-    '''Estimate the memory cost (in MB).'''
+    '''Estimate the memory cost.'''
     log = logger.Logger(mycc.stdout, mycc.verbose)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
 
     log.info('Approximate memory usage estimate')
-    if mycc.do_tril_maxT:
+    if mycc.do_tri_max_t:
         nocc3 = nocc * (nocc + 1) * (nocc + 2) // 6
-        t3_memory = nocc3 * nvir**3 * 8 / 1024**2
+        t3_memory = nocc3 * nvir**3 * 8
     else:
-        t3_memory = nocc**3 * nvir**3 * 8 / 1024**2
-    log.info('T3 memory               %9.5e MB', t3_memory)
-    log.info('R3 memory               %9.5e MB', t3_memory)
-    if not mycc.do_tril_maxT:
-        log.info('Symmetrized T3 memory   %9.5e MB', t3_memory)
-    if mycc.einsum_backend in ['numpy', 'pyscf']:
-        log.info("T3 einsum buffer        %9.5e MB", t3_memory)
-    eris_memory = nmo**4 * 8 / 1024**2
-    log.info('ERIs memory             %9.5e MB', eris_memory)
-    log.info('T1-ERIs memory          %9.5e MB', eris_memory)
-    log.info('Intermediates memory    %9.5e MB', eris_memory)
-    if mycc.do_tril_maxT:
-        blk_memory = mycc.blksize_oovv**2 * nocc * nvir**3 * 8 / 1024**2 * 2
-        log.info("Block workspace         %9.5e MB", blk_memory)
+        t3_memory = nocc**3 * nvir**3 * 8
+    log.info('    T3 memory               %8s', format_size(t3_memory))
+    log.info('    R3 memory               %8s', format_size(t3_memory))
+    if not mycc.do_tri_max_t:
+        log.info('    Symmetrized T3 memory   %8s', format_size(t3_memory))
+        if mycc.einsum_backend in ['numpy', 'pyscf']:
+            log.info("    T3 einsum buffer        %8s", format_size(t3_memory))
+    eris_memory = nmo**4 * 8
+    log.info('    ERIs memory             %8s', format_size(eris_memory))
+    log.info('    T1-ERIs memory          %8s', format_size(eris_memory))
+    log.info('    Intermediates memory    %8s', format_size(eris_memory))
+    if mycc.do_tri_max_t:
+        blk_memory = mycc.blksize_oovv**2 * nocc * nvir**3 * 8
+        log.info("    Block workspace         %8s", format_size(blk_memory))
     if mycc.incore_complete:
-        if mycc.do_diis_maxT:
-            diis_memory = nocc * (nocc + 1) * (nocc + 2) // 6 * nvir**3 * 8 / 1024**2 * mycc.diis_space * 2
+        if mycc.do_diis_max_t:
+            diis_memory = nocc * (nocc + 1) * (nocc + 2) // 6 * nvir**3 * 8 * mycc.diis_space * 2
         else:
-            diis_memory = nocc * (nocc + 1) // 2 * nvir**2 * 8 / 1024**2 * mycc.diis_space * 2
-        log.info('DIIS memory             %9.5e MB', diis_memory)
+            diis_memory = nocc * (nocc + 1) // 2 * nvir**2 * 8 * mycc.diis_space * 2
+        log.info('    DIIS memory             %8s', format_size(diis_memory))
     else:
         diis_memory = 0.0
-    if mycc.do_tril_maxT:
+    if mycc.do_tri_max_t:
         total_memory = 2 * t3_memory + 3 * eris_memory + diis_memory + blk_memory
     else:
         total_memory = 3 * t3_memory + 3 * eris_memory + diis_memory
-    log.info('Total estimated memory  %9.5e MB', total_memory)
+    if mycc.einsum_backend in ['numpy', 'pyscf']:
+        total_memory += t3_memory
+    log.info('Total estimated memory      %8s', format_size(total_memory))
     max_memory = mycc.max_memory - lib.current_memory()[0]
-    if total_memory > max_memory:
+    if (total_memory / 1024**2) > max_memory:
         logger.warn(mycc, 'Estimated memory usage exceeds the allowed limit for %s', mycc.__class__.__name__)
         logger.warn(mycc, 'The calculation may run out of memory')
         if mycc.incore_complete:
-            if mycc.do_diis_maxT:
-                logger.warn(mycc, 'Consider setting `do_diis_maxT = False` to reduce memory usage')
+            if mycc.do_diis_max_t:
+                logger.warn(mycc, 'Consider setting `do_diis_max_t = False` to reduce memory usage')
             else:
                 logger.warn(mycc, 'Consider setting `incore_complete = False` to reduce memory usage')
-        if not mycc.do_tril_maxT:
+        if not mycc.do_tri_max_t:
             logger.warn(mycc, 'Consider using %s in `pyscf.cc.rccsdt` which stores the triangular T amplitudes',
                         mycc.__class__.__name__)
         else:
-            logger.warn(mycc, 'Consider reducing `blksize_oovv` to reduce memory usage')
+            logger.warn(mycc, 'Consider reducing `blksize`, `blksize_oooo`, and `blksize_oovv` to reduce memory usage')
     return mycc
 
 def dump_chk(mycc, tamps=None, frozen=None, mo_coeff=None, mo_occ=None):
@@ -1254,39 +1254,40 @@ def dump_chk(mycc, tamps=None, frozen=None, mo_coeff=None, mo_occ=None):
     if mo_occ is not None: cc_chk['mo_occ'] = mo_occ
     if mycc._nmo is not None: cc_chk['_nmo'] = mycc._nmo
     if mycc._nocc is not None: cc_chk['_nocc'] = mycc._nocc
-    if mycc.do_tril_maxT:
+    if mycc.do_tri_max_t:
         lib.chkfile.save(mycc.chkfile, 'rccsdt', cc_chk)
     else:
         lib.chkfile.save(mycc.chkfile, 'rccsdt_highm', cc_chk)
+    return mycc
 
-def tamp_tril2full_rhf(mycc, tamp_tril):
+def tamps_tri2full_rhf(mycc, tamps_tri):
     '''Convert triangular-stored T amplitudes to their full tensor form.'''
     assert mycc.cc_order in (3, 4), "cc_order must be 3 or 4"
     if mycc.cc_order == 3:
-        assert tamp_tril.ndim == 4, "tamp_tril.ndim must be 4 for t3_tril"
+        assert tamps_tri.ndim == 4, "tamps_tri.ndim must be 4 for t3_tri"
     elif mycc.cc_order == 4:
-        assert tamp_tril.ndim == 5, "tamp_tril.ndim must be 5 for t4_tril"
+        assert tamps_tri.ndim == 5, "tamps_tri.ndim must be 5 for t4_tri"
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
-    tamp_full = np.zeros((nocc,) * mycc.cc_order + (nvir,) * mycc.cc_order, dtype=tamp_tril.dtype)
+    tamps_full = np.zeros((nocc,) * mycc.cc_order + (nvir,) * mycc.cc_order, dtype=tamps_tri.dtype)
     if mycc.cc_order == 3:
-        _unpack_t3_(mycc, tamp_tril, tamp_full, 0, nocc, 0, nocc, 0, nocc, blksize0=nocc, blksize1=nocc, blksize2=nocc)
+        _unpack_t3_(mycc, tamps_tri, tamps_full, 0, nocc, 0, nocc, 0, nocc, blksize0=nocc, blksize1=nocc, blksize2=nocc)
     elif mycc.cc_order == 4:
         from pyscf.cc.rccsdtq import _unpack_t4_
-        _unpack_t4_(mycc, tamp_tril, tamp_full, 0, nocc, 0, nocc, 0, nocc, 0, nocc,
+        _unpack_t4_(mycc, tamps_tri, tamps_full, 0, nocc, 0, nocc, 0, nocc, 0, nocc,
                         blksize0=nocc, blksize1=nocc, blksize2=nocc, blksize3=nocc)
-    return tamp_full
+    return tamps_full
 
-def tamp_full2tril_rhf(mycc, tamp_full):
+def tamps_full2tri_rhf(mycc, tamps_full):
     '''Convert full T amplitudes to their triangular-stored form.'''
-    nocc, order = tamp_full.shape[0], tamp_full.ndim // 2
+    nocc, order = tamps_full.shape[0], tamps_full.ndim // 2
     idx = np.meshgrid(*[np.arange(nocc)] * order, indexing='ij')
     occ = np.stack(idx, axis=-1)
     mask = np.all(np.diff(occ, axis=-1) >= 0, axis=-1)
     occ_tuple_idx = np.where(mask)
     full_index = tuple(occ_tuple_idx) + (slice(None),) * order
-    tamp_tril = tamp_full[full_index]
-    return tamp_tril
+    tamps_tri = tamps_full[full_index]
+    return tamps_tri
 
 
 class RCCSDT(ccsd.CCSDBase):
@@ -1294,14 +1295,24 @@ class RCCSDT(ccsd.CCSDBase):
     conv_tol = getattr(__config__, 'cc_rccsdt_RCCSDT_conv_tol', 1e-7)
     conv_tol_normt = getattr(__config__, 'cc_rccsdt_RCCSDT_conv_tol_normt', 1e-6)
     cc_order = getattr(__config__, 'cc_rccsdt_RCCSDT_cc_order', 3)
-    tamps = getattr(__config__, 'cc_rccsdt_RCCSDT_tamps', [None, None, None])
-    unique_tamps_map = getattr(__config__, 'cc_rccsdt_RCCSDT_unique_tamps_map', None)
-    do_tril_maxT = getattr(__config__, 'cc_rccsdt_RCCSDT_do_tril_maxT', True)
-    do_diis_maxT = getattr(__config__, 'cc_rccsdt_RCCSDT_do_diis_maxT', True)
+    do_diis_max_t = getattr(__config__, 'cc_rccsdt_RCCSDT_do_diis_max_t', True)
     blksize = getattr(__config__, 'cc_rccsdt_RCCSDT_blksize', 8)
     blksize_oovv = getattr(__config__, 'cc_rccsdt_RCCSDT_blksize_oovv', 4)
     blksize_oooo = getattr(__config__, 'cc_rccsdt_RCCSDT_blksize_oooo', 4)
     einsum_backend = getattr(__config__, 'cc_rccsdt_RCCSDT_einsum_backend', 'numpy')
+
+    _keys = {
+        'max_cycle', 'conv_tol', 'iterative_damping', 'conv_tol_normt', 'diis', 'diis_space', 'diis_file',
+        'diis_start_cycle', 'diis_start_energy_diff', 'async_io', 'incore_complete', 'callback',
+        'mol', 'verbose', 'stdout', 'frozen', 'level_shift', 'mo_coeff', 'mo_occ', 'cycles', 'emp2', 'e_hf',
+        'converged', 'e_corr', 'chkfile', 'cc_order', 'do_diis_max_t', 'blksize', 'blksize_oovv', 'blksize_oooo',
+        'einsum_backend', 'tamps', 'unique_tamps_map', 'tri2block_map', 'tri2block_mask', 'tri2block_tp',
+    }
+
+    def __init__(self, mf, frozen=None, mo_coeff=None, mo_occ=None):
+        self.tamps = [None, None, None]
+        ccsd.CCSDBase.__init__(self, mf, frozen, mo_coeff, mo_occ)
+        self.unique_tamps_map = None
 
     @property
     def t1(self):
@@ -1327,8 +1338,7 @@ class RCCSDT(ccsd.CCSDBase):
     def t3(self, val):
         self.tamps[2] = val
 
-    def __init__(self, mf, frozen=None, mo_coeff=None, mo_occ=None):
-        ccsd.CCSDBase.__init__(self, mf, frozen, mo_coeff, mo_occ)
+    do_tri_max_t = property(lambda self: True)
 
     def set_einsum_backend(self, backend):
         self.einsum_backend = backend
@@ -1337,23 +1347,23 @@ class RCCSDT(ccsd.CCSDBase):
     get_nmo = get_nmo
     get_frozen_mask = get_frozen_mask
     get_e_hf = get_e_hf
-    ao2mo = ao2mo_rccsdt
+    ao2mo = _ao2mo_rcc
     init_amps = init_amps_rhf
     energy = energy_rhf
     restore_from_diis_ = restore_from_diis_
     memory_estimate_log = memory_estimate_log_rccsdt
-    update_amps_ = update_amps_rccsdt_tril_
+    update_amps_ = update_amps_rccsdt_tri_
     amplitudes_to_vector = amplitudes_to_vector_rhf
     vector_to_amplitudes = vector_to_amplitudes_rhf
-    build_unique_tamps_map_ = build_unique_tamps_map_rhf_
-    setup_tril2cube_ = setup_tril2cube_rhf_
+    build_unique_tamps_map = build_unique_tamps_map_rhf
+    setup_tri2block = setup_tri2block_rhf
     vector_size = vector_size_rhf
     run_diis = run_diis
     _finalize = _finalize
     dump_flags = dump_flags
     dump_chk = dump_chk
-    tamp_tril2full = tamp_tril2full_rhf
-    tamp_full2tril = tamp_full2tril_rhf
+    tamps_tri2full = tamps_tri2full_rhf
+    tamps_full2tri = tamps_full2tri_rhf
 
     def kernel(self, tamps=None, eris=None):
         return self.ccsdt(tamps, eris)
@@ -1377,23 +1387,29 @@ class RCCSDT(ccsd.CCSDBase):
 
         nocc = eris.nocc
 
-        if self.do_tril_maxT:
-            self.setup_tril2cube_()
+        if self.do_tri_max_t:
+            self.tri2block_map, self.tri2block_mask, self.tri2block_tp = self.setup_tri2block()
 
-            self.blksize = min(self.blksize, (nocc + 1) // 2)
-            self.blksize_oovv = min(self.blksize_oovv, (nocc + 1) // 2)
-            self.blksize_oooo = min(self.blksize_oooo, (nocc + 1) // 2)
-            self.blksize_vvvv = 1
+            self.blksize = min(self.blksize, nocc)
+            self.blksize_oovv = min(self.blksize_oovv, nocc)
+            self.blksize_oooo = min(self.blksize_oooo, nocc)
             log.info('blksize %2d    blksize_oovv %2d    blksize_oooo %2d    blksize_vvvv %2d'%(
-                        self.blksize, self.blksize_oovv, self.blksize_oooo, self.blksize_vvvv))
+                        self.blksize, self.blksize_oovv, self.blksize_oooo, 1))
+            if self.blksize > (nocc + 1) // 2:
+                logger.warn(self, 'A large `blksize` is being used. If sufficient memory is available for '
+                                    'the Block workspace, consider using `pyscf.cc.rccsdt.RCCSDT` instead.')
+            if self.blksize_oovv >= (nocc + 1) // 2:
+                logger.warn(self, 'A large `blksize_oovv` is being used. If sufficient memory is available for '
+                                    'the Block workspace, consider using `pyscf.cc.rccsdt.RCCSDT` instead.')
+            if self.blksize_oooo >= (nocc + 1) // 2:
+                logger.warn(self, 'A large `blksize_oooo` is being used. If sufficient memory is available for '
+                                    'the Block workspace, consider using `pyscf.cc.rccsdt.RCCSDT` instead.')
 
         self.memory_estimate_log()
-        self.build_unique_tamps_map_()
+        self.unique_tamps_map = self.build_unique_tamps_map()
 
-        self.converged, self.e_corr, self.tamps = \
-                kernel(self, eris, tamps, max_cycle=self.max_cycle,
-                       tol=self.conv_tol, tolnormt=self.conv_tol_normt,
-                       verbose=self.verbose, callback=self.callback)
+        self.converged, self.e_corr, self.tamps = kernel(self, eris, tamps, max_cycle=self.max_cycle,
+                       tol=self.conv_tol, tolnormt=self.conv_tol_normt, verbose=self.verbose, callback=self.callback)
         self._finalize()
         return self.e_corr, self.tamps
 
@@ -1433,28 +1449,25 @@ class _PhysicistsERIs:
             pass
         return self
 
-def _make_eris_incore_rccsdt(mycc, mo_coeff=None):
+def _make_eris_incore_rcc(mycc, mo_coeff=None):
     cput0 = (logger.process_clock(), logger.perf_counter())
     eris = _PhysicistsERIs()
     eris._common_init_(mycc, mo_coeff)
-    nocc = eris.nocc
     nmo = eris.fock.shape[0]
 
     eri1 = ao2mo.incore.full(mycc._scf._eri, eris.mo_coeff)
-    eris.pqrs = ao2mo.restore(1, eri1, nmo).transpose(0, 2, 1, 3)
-    if not eris.pqrs.flags['C_CONTIGUOUS']:
-        eris.pqrs = np.ascontiguousarray(eris.pqrs)
-    eris.oovv = eris.pqrs[:nocc, :nocc, nocc:, nocc:].copy()
+    eris.pppp = ao2mo.restore(1, eri1, nmo).transpose(0, 2, 1, 3)
+    if not eris.pppp.flags['C_CONTIGUOUS']:
+        eris.pppp = np.ascontiguousarray(eris.pppp)
 
     logger.timer(mycc, mycc.__class__.__name__ + ' integral transformation', *cput0)
     return eris
 
-def _make_df_eris_incore_rccsdt(mycc, mo_coeff=None):
+def _make_df_eris_incore_rcc(mycc, mo_coeff=None):
     cput0 = (logger.process_clock(), logger.perf_counter())
     eris = _PhysicistsERIs()
     eris._common_init_(mycc, mo_coeff)
 
-    nocc = eris.nocc
     mo_coeff = numpy.asarray(eris.mo_coeff, order='F')
     nao, nmo = mo_coeff.shape
 
@@ -1470,10 +1483,9 @@ def _make_df_eris_incore_rccsdt(mycc, mo_coeff=None):
         Lpq_tmp = None
     Lpq = Lpq.reshape(naux, nmo * nmo)
 
-    eris.pqrs = lib.ddot(Lpq.T, Lpq).reshape(nmo, nmo, nmo, nmo).transpose(0, 2, 1, 3)
-    if not eris.pqrs.flags['C_CONTIGUOUS']:
-        eris.pqrs = np.ascontiguousarray(eris.pqrs)
-    eris.oovv = eris.pqrs[:nocc, :nocc, nocc:, nocc:].copy()
+    eris.pppp = lib.ddot(Lpq.T, Lpq).reshape(nmo, nmo, nmo, nmo).transpose(0, 2, 1, 3)
+    if not eris.pppp.flags['C_CONTIGUOUS']:
+        eris.pppp = np.ascontiguousarray(eris.pppp)
 
     logger.timer(mycc, mycc.__class__.__name__ + ' integral transformation', *cput0)
     return eris
@@ -1492,40 +1504,40 @@ if __name__ == "__main__":
     mf.kernel()
     print()
 
-    ref_ecorr = -0.3217858674891447
+    ref_e_corr = -0.3217858674891447
     mycc = RCCSDT(mf, frozen=chemcore(mol))
     mycc.set_einsum_backend('numpy')
     mycc.conv_tol = 1e-12
     mycc.conv_tol_normt = 1e-10
     mycc.max_cycle = 100
     mycc.verbose = 5
-    mycc.do_diis_maxT = True
+    mycc.do_diis_max_t = True
     mycc.incore_complete = True
     mycc.kernel()
-    print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc.e_corr, ref_ecorr, mycc.e_corr - ref_ecorr))
+    print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc.e_corr, ref_e_corr, mycc.e_corr - ref_e_corr))
     print('\n' * 5)
 
     # comparison with the high-memory version
-    from rccsdt_highm import RCCSDT as RCCSDThm
+    from pyscf.cc.rccsdt_highm import RCCSDT as RCCSDThm
     mycc2 = RCCSDThm(mf, frozen=chemcore(mol))
     mycc2.set_einsum_backend('numpy')
     mycc2.conv_tol = 1e-12
     mycc2.conv_tol_normt = 1e-10
     mycc2.max_cycle = 100
     mycc2.verbose = 5
-    mycc2.do_diis_maxT = True
+    mycc2.do_diis_max_t = True
     mycc2.incore_complete = True
     mycc2.kernel()
-    print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc2.e_corr, ref_ecorr, mycc2.e_corr - ref_ecorr))
+    print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc2.e_corr, ref_e_corr, mycc2.e_corr - ref_e_corr))
     print()
 
-    t3_tril = mycc.t3
+    t3_tri = mycc.t3
     t3_full = mycc2.t3
-    t3_tril_from_t3_full = mycc2.tamp_full2tril(t3_full)
-    t3_full_from_t3_tril = mycc.tamp_tril2full(t3_tril)
+    t3_tri_from_t3_full = mycc2.tamps_full2tri(t3_full)
+    t3_full_from_t3_tri = mycc.tamps_tri2full(t3_tri)
 
     print('energy difference                          % .10e' % (mycc.e_tot - mycc2.e_tot))
     print('max(abs(t1 difference))                    % .10e' % np.max(np.abs(mycc.t1 - mycc2.t1)))
     print('max(abs(t2 difference))                    % .10e' % np.max(np.abs(mycc.t2 - mycc2.t2)))
-    print('max(abs(t3_tril - t3_tril_from_t3_full))   % .10e' % np.max(np.abs(t3_tril - t3_tril_from_t3_full)))
-    print('max(abs(t3_full - t3_full_from_t3_tril))   % .10e' % np.max(np.abs(t3_full - t3_full_from_t3_tril)))
+    print('max(abs(t3_tri - t3_tri_from_t3_full))     % .10e' % np.max(np.abs(t3_tri - t3_tri_from_t3_full)))
+    print('max(abs(t3_full - t3_full_from_t3_tri))    % .10e' % np.max(np.abs(t3_full - t3_full_from_t3_tri)))

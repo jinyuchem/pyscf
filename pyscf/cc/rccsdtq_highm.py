@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 # Author: Yu Jin <yjin@flatironinstitute.org>
+#         Huanchen Zhai <hczhai.ok@gmail.com>
 #
 
 '''
@@ -27,204 +28,204 @@ Chem. Phys. Lett. 228, 233 (1994); DOI:10.1016/0009-2614(94)00898-1
 
 import numpy as np
 import numpy
+import functools
 import ctypes
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.mp.mp2 import get_nocc, get_nmo, get_frozen_mask, get_e_hf, _mo_without_core
 from pyscf.cc import _ccsd, rccsdtq
-from pyscf.cc.rccsdt import (einsum_, t3_spin_summation_inplace_, update_t1_fock_eris_, intermediates_t1t2_,
-                            compute_r1r2, r1r2_divide_e_, intermediates_t3_, _PhysicistsERIs)
+from pyscf.cc.rccsdt import (_einsum, t3_spin_summation_inplace_, update_t1_fock_eris, intermediates_t1t2,
+                            compute_r1r2, r1r2_divide_e_, intermediates_t3, _PhysicistsERIs)
 from pyscf.cc.rccsdt_highm import (t3_spin_summation, t3_perm_symmetrize_inplace_, purify_tamps_, r1r2_add_t3_,
                                     intermediates_t3_add_t3_, compute_r3, r3_divide_e_)
-from pyscf.cc.rccsdtq import t4_spin_summation_inplace_c, t4_add_
+from pyscf.cc.rccsdtq import t4_spin_summation_inplace_, t4_add_
 from pyscf import __config__
 
+
+_libccsdt = lib.load_library('libccsdt')
 
 def t4_spin_summation(A, B, nocc4, nvir, pattern, alpha=1.0, beta=0.0):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
     assert B.dtype == np.float64 and B.flags['C_CONTIGUOUS'], "B must be a contiguous float64 array"
     pattern_c = pattern.encode('utf-8')
-    _ccsd.libccsdt.t4_spin_summation_c(
-        A.ctypes.data_as(ctypes.c_void_p),
-        B.ctypes.data_as(ctypes.c_void_p),
-        ctypes.c_int64(nocc4),
-        ctypes.c_int64(nvir),
+    _libccsdt.t4_spin_summation(
+        A.ctypes.data_as(ctypes.c_void_p), B.ctypes.data_as(ctypes.c_void_p),
+        ctypes.c_int64(nocc4), ctypes.c_int64(nvir),
         ctypes.c_char_p(pattern_c),
-        ctypes.c_double(alpha),
-        ctypes.c_double(beta)
+        ctypes.c_double(alpha), ctypes.c_double(beta)
     )
     return B
 
 def t4_perm_symmetrize_inplace_(A, nocc, nvir, alpha=1.0, beta=0.0):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
-    _ccsd.libccsdt.t4_perm_symmetrize_inplace_c(
+    _libccsdt.t4_perm_symmetrize_inplace_(
         A.ctypes.data_as(ctypes.c_void_p),
-        ctypes.c_int64(nocc),
-        ctypes.c_int64(nvir),
-        ctypes.c_double(alpha),
-        ctypes.c_double(beta)
+        ctypes.c_int64(nocc), ctypes.c_int64(nvir),
+        ctypes.c_double(alpha), ctypes.c_double(beta)
     )
     return A
 
 def eijkl_division_(A, eia, nocc, nvir):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
     assert eia.dtype == np.float64 and eia.flags['C_CONTIGUOUS'], "eia must be a contiguous float64 array"
-    _ccsd.libccsdt.eijkl_division_c(
-        A.ctypes.data_as(ctypes.c_void_p),
-        eia.ctypes.data_as(ctypes.c_void_p),
-        ctypes.c_int64(nocc),
-        ctypes.c_int64(nvir),
+    _libccsdt.eijkl_division_(
+        A.ctypes.data_as(ctypes.c_void_p), eia.ctypes.data_as(ctypes.c_void_p),
+        ctypes.c_int64(nocc), ctypes.c_int64(nvir),
     )
+    return A
 
-def r2_add_t4_(mycc, t4, r2):
+def r2_add_t4_(mycc, r2, t1_eris, t4):
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
-    cc_t4 = np.empty_like(t4)
-    t4_spin_summation(t4, cc_t4, nocc**4, nvir, "P4_442", 1.0, 0.0)
-    einsum_(mycc, 'mnef,mnijefab->ijab', mycc.t1_eris[:nocc, :nocc, nocc:, nocc:], cc_t4, out=r2, alpha=0.25, beta=1.0)
-    cc_t4 = None
 
-def r3_add_t4_(mycc, t4, r3):
+    c_t4 = np.empty_like(t4)
+    t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_442", 1.0, 0.0)
+    einsum('mnef,mnijefab->ijab', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t4, out=r2, alpha=0.25, beta=1.0)
+    c_t4 = None
+    return r2
+
+def r3_add_t4_(mycc, r3, t1_fock, t1_eris, t4):
     '''Add the T4 contributions to r3. T4 amplitudes are stored in full form.'''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
-    t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
-    # TODO: Avoid recomputing c_t4; cache or reuse the result
     c_t4 = np.empty_like(t4)
     t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
     # R3: P9
-    einsum_(mycc, 'me,mijkeabc->ijkabc', t1_fock[:nocc, nocc:], c_t4, out=r3, alpha=1.0 / 6.0, beta=1.0)
+    einsum('me,mijkeabc->ijkabc', t1_fock[:nocc, nocc:], c_t4, out=r3, alpha=1.0 / 6.0, beta=1.0)
     # R3: P10
-    einsum_(mycc, 'amef,mijkfebc->ijkabc', t1_eris[nocc:, :nocc, nocc:, nocc:], c_t4, out=r3, alpha=0.5, beta=1.0)
+    einsum('amef,mijkfebc->ijkabc', t1_eris[nocc:, :nocc, nocc:, nocc:], c_t4, out=r3, alpha=0.5, beta=1.0)
     # R3: P11
-    einsum_(mycc, 'mnej,minkeabc->ijkabc', t1_eris[:nocc, :nocc, nocc:, :nocc], c_t4, out=r3, alpha=-0.5, beta=1.0)
+    einsum('mnej,minkeabc->ijkabc', t1_eris[:nocc, :nocc, nocc:, :nocc], c_t4, out=r3, alpha=-0.5, beta=1.0)
     c_t4 = None
+    return r3
 
-def intermediates_t4_(mycc, t2, t3, t4):
-    '''Intermediates for the T4 residual equation, with T4 amplitudes stored in full form.'''
+def intermediates_t4_(mycc, W_vvvo, t1_fock, t1_eris, W_oooo, W_ovov, W_vvvv, t2, t3, t4):
+    '''Intermediates for the T4 residual equation, with T4 amplitudes stored in full form.
+    In place modification of W_vvvo.
+    '''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
-    t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
-    c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
-    c_t3 = np.empty_like(t3)
-    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
-    # TODO: Avoid recomputing c_t3; cache or reuse the result
-    c_t4 = np.empty_like(t4)
-    t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
-
-    einsum_(mycc, 'me,mjab->abej', t1_fock[:nocc, nocc:], t2, out=mycc.W_vvvo_tc, alpha=-1.0, beta=1.0)
+    einsum('me,mjab->abej', t1_fock[:nocc, nocc:], t2, out=W_vvvo, alpha=-1.0, beta=1.0)
 
     W_ovvvoo = np.empty((nocc,) + (nvir,) * 3 + (nocc,) * 2, dtype=t2.dtype)
-    einsum_(mycc, 'maef,jibf->mabeij', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_ovvvoo, alpha=2.0, beta=0.0)
-    einsum_(mycc, 'mafe,jibf->mabeij', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_ovvvoo, alpha=-1.0, beta=1.0)
-    einsum_(mycc, 'mnei,njab->mabeij', t1_eris[:nocc, :nocc, nocc:, :nocc], t2, out=W_ovvvoo, alpha=-2.0, beta=1.0)
-    einsum_(mycc, 'nmei,njab->mabeij', t1_eris[:nocc, :nocc, nocc:, :nocc], t2, out=W_ovvvoo, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'nmfe,nijfab->mabeij', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3, out=W_ovvvoo, alpha=0.5, beta=1.0)
-    einsum_(mycc, 'mnfe,nijfab->mabeij', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3, out=W_ovvvoo, alpha=-0.25, beta=1.0)
-    W_ovvvoo += W_ovvvoo.transpose(0, 2, 1, 3, 5, 4)
+    einsum('maef,jibf->mabeij', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_ovvvoo, alpha=2.0, beta=0.0)
+    einsum('mafe,jibf->mabeij', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_ovvvoo, alpha=-1.0, beta=1.0)
+    einsum('mnei,njab->mabeij', t1_eris[:nocc, :nocc, nocc:, :nocc], t2, out=W_ovvvoo, alpha=-2.0, beta=1.0)
+    einsum('nmei,njab->mabeij', t1_eris[:nocc, :nocc, nocc:, :nocc], t2, out=W_ovvvoo, alpha=1.0, beta=1.0)
+    c_t3 = np.empty_like(t3)
+    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
+    einsum('nmfe,nijfab->mabeij', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3, out=W_ovvvoo, alpha=0.5, beta=1.0)
+    einsum('mnfe,nijfab->mabeij', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3, out=W_ovvvoo, alpha=-0.25, beta=1.0)
+    c_t3 = None
 
     W_ovvovo = np.empty((nocc,) + (nvir,) * 2 + (nocc, nvir, nocc), dtype=t2.dtype)
-    einsum_(mycc, 'mafe,jibf->mabiej', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_ovvovo, alpha=1.0, beta=0.0)
-    einsum_(mycc, 'mnie,njab->mabiej', t1_eris[:nocc, :nocc, :nocc, nocc:], t2, out=W_ovvovo, alpha=-1.0, beta=1.0)
-    einsum_(mycc, 'nmef,injfab->mabiej', t1_eris[:nocc, :nocc, nocc:, nocc:], t3, out=W_ovvovo, alpha=-0.5, beta=1.0)
+    einsum('mafe,jibf->mabiej', t1_eris[:nocc, nocc:, nocc:, nocc:], t2, out=W_ovvovo, alpha=1.0, beta=0.0)
+    einsum('mnie,njab->mabiej', t1_eris[:nocc, :nocc, :nocc, nocc:], t2, out=W_ovvovo, alpha=-1.0, beta=1.0)
+    einsum('nmef,injfab->mabiej', t1_eris[:nocc, :nocc, nocc:, nocc:], t3, out=W_ovvovo, alpha=-0.5, beta=1.0)
 
     W_vooooo = np.empty((nvir,) + (nocc,) * 5, dtype=t2.dtype)
-    einsum_(mycc, 'mnek,ijae->amnijk', t1_eris[:nocc, :nocc, nocc:, :nocc], t2, out=W_vooooo, alpha=1.0, beta=0.0)
-    einsum_(mycc, 'mnef,ijkaef->amnijk', t1_eris[:nocc, :nocc, nocc:, nocc:], t3, out=W_vooooo, alpha=0.5, beta=1.0)
+    einsum('mnek,ijae->amnijk', t1_eris[:nocc, :nocc, nocc:, :nocc], t2, out=W_vooooo, alpha=1.0, beta=0.0)
+    einsum('mnef,ijkaef->amnijk', t1_eris[:nocc, :nocc, nocc:, nocc:], t3, out=W_vooooo, alpha=0.5, beta=1.0)
     W_vooooo += W_vooooo.transpose(0, 2, 1, 3, 5, 4)
 
     W_vvoooo = np.empty((nvir,) * 2 + (nocc,) * 4, dtype=t2.dtype)
-    einsum_(mycc, 'amef,ijkebf->abmijk', t1_eris[nocc:, :nocc, nocc:, nocc:], t3, out=W_vvoooo, alpha=1.0, beta=0.0)
+    einsum('amef,ijkebf->abmijk', t1_eris[nocc:, :nocc, nocc:, nocc:], t3, out=W_vvoooo, alpha=1.0, beta=0.0)
     # TODO: Derive an alternative expression for this term
-    W_ovvo_c = t1_eris[:nocc, nocc:, nocc:, :nocc].copy()
-    einsum_(mycc, 'nmfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo_c, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'mnfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo_c, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'nmef,infa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo_c, alpha=-0.5, beta=1.0)
+    tmp_ovvo = t1_eris[:nocc, nocc:, nocc:, :nocc].copy()
+    c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
+    einsum('nmfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=tmp_ovvo, alpha=1.0, beta=1.0)
+    einsum('mnfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=tmp_ovvo, alpha=-0.5, beta=1.0)
+    c_t2 = None
+    einsum('nmef,infa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=tmp_ovvo, alpha=-0.5, beta=1.0)
     #
-    einsum_(mycc, 'maei,jkbe->abmijk', W_ovvo_c, t2, out=W_vvoooo, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'make,jibe->abmijk', mycc.W_ovov_tc, t2, out=W_vvoooo, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'mnki,njab->abmijk', mycc.W_oooo, t2, out=W_vvoooo, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'mnef,nijkfabe->abmijk', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t4, out=W_vvoooo, alpha=0.5, beta=1.0)
-    W_vvoooo += W_vvoooo.transpose(1, 0, 2, 4, 3, 5)
+    einsum('maei,jkbe->abmijk', tmp_ovvo, t2, out=W_vvoooo, alpha=1.0, beta=1.0)
+    tmp_ovvo = None
+    einsum('make,jibe->abmijk', W_ovov, t2, out=W_vvoooo, alpha=1.0, beta=1.0)
+    einsum('mnki,njab->abmijk', W_oooo, t2, out=W_vvoooo, alpha=-0.5, beta=1.0)
+    c_t4 = np.empty_like(t4)
+    t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
+    einsum('mnef,nijkfabe->abmijk', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t4, out=W_vvoooo, alpha=0.5, beta=1.0)
 
     W_vvvvoo = np.empty((nvir,) * 4 + (nocc,) * 2, dtype=t2.dtype)
-    einsum_(mycc, 'abef,jkfc->abcejk', mycc.W_vvvv_tc, t2, out=W_vvvvoo, alpha=0.5, beta=0.0)
-    einsum_(mycc, 'mnef,nmjkfabc->abcejk', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t4,
-            out=W_vvvvoo, alpha=-0.5, beta=1.0)
+    einsum('abef,jkfc->abcejk', W_vvvv, t2, out=W_vvvvoo, alpha=0.5, beta=0.0)
+    einsum('mnef,nmjkfabc->abcejk', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t4, out=W_vvvvoo, alpha=-0.5, beta=1.0)
+    c_t4 = None
+
+    W_ovvvoo += W_ovvvoo.transpose(0, 2, 1, 3, 5, 4)
+    W_vvoooo += W_vvoooo.transpose(1, 0, 2, 4, 3, 5)
     W_vvvvoo += W_vvvvoo.transpose(0, 2, 1, 3, 5, 4)
+    return W_vvvo, W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo
 
-    mycc.W_ovvvoo = W_ovvvoo
-    mycc.W_ovvovo = W_ovvovo
-    mycc.W_vooooo = W_vooooo
-    mycc.W_vvoooo = W_vvoooo
-    mycc.W_vvvvoo = W_vvvvoo
-
-    c_t2, c_t3, c_t4 = None, None, None
-    return mycc
-
-def compute_r4(mycc, t2, t3, t4):
+def compute_r4(mycc, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_vvvv,
+                W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo, t2, t3, t4):
     '''Compute r4 with full T4 amplitudes; r4 is returned in full form as well.
     r4 will require a symmetry restoration step afterward.
     '''
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
 
-    c_t3 = np.empty_like(t3)
-    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
-    # TODO: Avoid recomputing c_t3; cache or reuse the result
-    c_t4 = np.empty_like(t4)
-    t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
-
     r4 = np.empty_like(t4)
     # R4: P0
-    einsum_(mycc, 'abej,iklecd->ijklabcd', mycc.W_vvvo_tc, t3, out=r4, alpha=0.5, beta=0.0)
+    einsum('abej,iklecd->ijklabcd', W_vvvo, t3, out=r4, alpha=0.5, beta=0.0)
     time1 = log.timer_debug1('t4: W_vvvo * t3', *time1)
     # R4: P1
-    einsum_(mycc, 'amij,mklbcd->ijklabcd', mycc.W_vooo_tc, t3, out=r4, alpha=-0.5, beta=1.0)
+    einsum('amij,mklbcd->ijklabcd', W_vooo, t3, out=r4, alpha=-0.5, beta=1.0)
     time1 = log.timer_debug1('t4: W_vooo * t3', *time1)
     # R4: P2
-    einsum_(mycc, 'ae,ijklebcd->ijklabcd', mycc.tf_vv, t4, out=r4, alpha=1.0 / 6.0, beta=1.0)
-    time1 = log.timer_debug1('t4: f_vv * t4', *time1)
+    einsum('ae,ijklebcd->ijklabcd', F_vv, t4, out=r4, alpha=1.0 / 6.0, beta=1.0)
+    time1 = log.timer_debug1('t4: F_vv * t4', *time1)
     # R4: P3
-    einsum_(mycc, 'mi,mjklabcd->ijklabcd', mycc.tf_oo, t4, out=r4, alpha=-1.0 / 6.0, beta=1.0)
-    time1 = log.timer_debug1('t4: f_oo * t4', *time1)
+    einsum('mi,mjklabcd->ijklabcd', F_oo, t4, out=r4, alpha=-1.0 / 6.0, beta=1.0)
+    time1 = log.timer_debug1('t4: F_oo * t4', *time1)
     # R4: P4
-    einsum_(mycc, 'maei,mjklebcd->ijklabcd', mycc.W_ovvo_tc, c_t4, out=r4, alpha=1.0 / 12.0, beta=1.0)
+    c_t4 = np.empty_like(t4)
+    t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
+    einsum('maei,mjklebcd->ijklabcd', W_ovvo, c_t4, out=r4, alpha=1.0 / 12.0, beta=1.0)
     c_t4 = None
     time1 = log.timer_debug1('t4: W_ovvo * c_t4', *time1)
     # R4: P5
-    einsum_(mycc, 'maie,jmklebcd->ijklabcd', mycc.W_ovov_tc, t4, out=r4, alpha=-0.25, beta=1.0)
+    einsum('maie,jmklebcd->ijklabcd', W_ovov, t4, out=r4, alpha=-0.25, beta=1.0)
     time1 = log.timer_debug1('t3: W_ovov * t4', *time1)
     # R4: P6
-    einsum_(mycc, 'mbie,jmkleacd->ijklabcd', mycc.W_ovov_tc, t4, out=r4, alpha=-0.5, beta=1.0)
+    einsum('mbie,jmkleacd->ijklabcd', W_ovov, t4, out=r4, alpha=-0.5, beta=1.0)
     time1 = log.timer_debug1('t4: W_ovov * t4', *time1)
     # R4: P7
-    einsum_(mycc, 'mnij,mnklabcd->ijklabcd', mycc.W_oooo, t4, out=r4, alpha=0.25, beta=1.0)
+    einsum('mnij,mnklabcd->ijklabcd', W_oooo, t4, out=r4, alpha=0.25, beta=1.0)
     time1 = log.timer_debug1('t4: W_oooo * t4', *time1)
     # R4: P8
-    einsum_(mycc, 'abef,ijklefcd->ijklabcd', mycc.W_vvvv_tc, t4, out=r4, alpha=0.25, beta=1.0)
+    einsum('abef,ijklefcd->ijklabcd', W_vvvv, t4, out=r4, alpha=0.25, beta=1.0)
     time1 = log.timer_debug1('t4: W_vvvv * t4', *time1)
     # R4: P9
-    einsum_(mycc, 'mabeij,mklecd->ijklabcd', mycc.W_ovvvoo, c_t3, out=r4, alpha=0.125, beta=1.0)
+    c_t3 = np.empty_like(t3)
+    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
+    einsum('mabeij,mklecd->ijklabcd', W_ovvvoo, c_t3, out=r4, alpha=0.125, beta=1.0)
     c_t3 = None
     time1 = log.timer_debug1('t4: W_ovvvoo * c_t3', *time1)
     # R4: P10 & P11
-    einsum_(mycc, 'mabiej,kmlecd->ijklabcd', mycc.W_ovvovo, t3, out=r4, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'mcbiej,kmlead->ijklabcd', mycc.W_ovvovo, t3, out=r4, alpha=-1.0, beta=1.0)
+    einsum('mabiej,kmlecd->ijklabcd', W_ovvovo, t3, out=r4, alpha=-0.5, beta=1.0)
+    einsum('mcbiej,kmlead->ijklabcd', W_ovvovo, t3, out=r4, alpha=-1.0, beta=1.0)
     time1 = log.timer_debug1('t4: W_ovvovo * t3', *time1)
     # R4: P12
-    einsum_(mycc, 'amnijk,mnlbcd->ijklabcd', mycc.W_vooooo, t3, out=r4, alpha=0.5, beta=1.0)
+    einsum('amnijk,mnlbcd->ijklabcd', W_vooooo, t3, out=r4, alpha=0.5, beta=1.0)
     time1 = log.timer_debug1('t4: W_vooooo * t3', *time1)
     # R4: P13
-    einsum_(mycc, 'abmijk,mlcd->ijklabcd', mycc.W_vvoooo, t2, out=r4, alpha=-0.5, beta=1.0)
+    einsum('abmijk,mlcd->ijklabcd', W_vvoooo, t2, out=r4, alpha=-0.5, beta=1.0)
     time1 = log.timer_debug1('t4: W_vvoooo * t2', *time1)
     # R4: P14
-    einsum_(mycc, 'abcejk,iled->ijklabcd', mycc.W_vvvvoo, t2, out=r4, alpha=0.5, beta=1.0)
+    einsum('abcejk,iled->ijklabcd', W_vvvvoo, t2, out=r4, alpha=0.5, beta=1.0)
     time1 = log.timer_debug1('t4: W_vvvvoo * t2', *time1)
     return r4
 
@@ -233,6 +234,7 @@ def r4_divide_e_(mycc, r4, mo_energy):
     nvir = nmo - nocc
     eia = mo_energy[:nocc, None] - mo_energy[None, nocc:] - mycc.level_shift
     eijkl_division_(r4, eia, nocc, nvir)
+    return r4
 
 def update_amps_rccsdtq_(mycc, tamps, eris):
     '''Update RCCSDTQ amplitudes in place, with T4 amplitudes stored in full form.'''
@@ -243,16 +245,17 @@ def update_amps_rccsdtq_(mycc, tamps, eris):
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     t1, t2, t3, t4 = tamps
-    mo_energy = eris.mo_energy.copy()
+    mo_energy = eris.mo_energy
 
     # t1, t2
-    update_t1_fock_eris_(mycc, t1, eris)
+    t1_fock, t1_eris = update_t1_fock_eris(mycc, t1, eris)
     time1 = log.timer_debug1('update fock and eris', *time0)
-    intermediates_t1t2_(mycc, t2)
+    F_oo, F_vv, W_oooo, W_ovvo, W_ovov = intermediates_t1t2(mycc, t1_fock, t1_eris, t2)
     time1 = log.timer_debug1('t1t2: update intermediates', *time1)
-    r1, r2 = compute_r1r2(mycc, t2)
-    r1r2_add_t3_(mycc, t3, r1, r2)
-    r2_add_t4_(mycc, t4, r2)
+    r1, r2 = compute_r1r2(mycc, t1_fock, t1_eris, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, t2)
+    W_ovvo, W_ovov = None, None
+    r1r2_add_t3_(mycc, r1, r2, t1_fock, t1_eris, t3)
+    r2_add_t4_(mycc, r2, t1_eris, t4)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
     # symmetrize R2
     r2 += r2.transpose(1, 0, 3, 2)
@@ -269,11 +272,11 @@ def update_amps_rccsdtq_(mycc, tamps, eris):
     time0 = log.timer_debug1('t1t2 total', *time0)
 
     # t3
-    intermediates_t3_(mycc, t2)
-    intermediates_t3_add_t3_(mycc, t3)
+    W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = intermediates_t3(mycc, t1_fock, t1_eris, t2)
+    intermediates_t3_add_t3_(mycc, W_vooo, W_vvvo, t1_eris, t3)
     time1 = log.timer_debug1('t3: update intermediates', *time0)
-    r3 = compute_r3(mycc, t2, t3)
-    r3_add_t4_(mycc, t4, r3)
+    r3 = compute_r3(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv, t2, t3)
+    r3_add_t4_(mycc, r3, t1_fock, t1_eris, t4)
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrization
     t3_perm_symmetrize_inplace_(r3, nocc, nvir, 1.0, 0.0)
@@ -292,14 +295,18 @@ def update_amps_rccsdtq_(mycc, tamps, eris):
     time0 = log.timer_debug1('t3 total', *time0)
 
     # t4
-    intermediates_t4_(mycc, t2, t3, t4)
-    mycc.t1_eris = None
+    W_vvvo, W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo = intermediates_t4_(mycc, W_vvvo,
+        t1_fock, t1_eris, W_oooo, W_ovov, W_vvvv, t2, t3, t4)
+    t1_fock, t1_eris = None, None
     time1 = log.timer_debug1('t4: update intermediates', *time0)
-    r4 = compute_r4(mycc, t2, t3, t4)
+    r4 = compute_r4(mycc, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_vvvv,
+                    W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo, t2, t3, t4)
+    F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_vvvv = (None,) * 8
+    W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo = (None,) * 5
     time1 = log.timer_debug1('t4: compute r4', *time1)
     # symmetrize r4
     t4_perm_symmetrize_inplace_(r4, nocc, nvir, 1.0, 0.0)
-    t4_spin_summation_inplace_c(r4, nocc**4, nvir, "P4_full", -1.0 / 24.0, 1.0)
+    t4_spin_summation_inplace_(r4, nocc**4, nvir, "P4_full", -1.0 / 24.0, 1.0)
     purify_tamps_(r4)
     time1 = log.timer_debug1('t4: symmetrize r4', *time1)
     # divide by eijkabc
@@ -317,10 +324,10 @@ def update_amps_rccsdtq_(mycc, tamps, eris):
 
 class RCCSDTQ(rccsdtq.RCCSDTQ):
 
-    do_tril_maxT = getattr(__config__, 'cc_rccsdtq_highm_RCCSDTQ_do_tril_maxT', False)
-
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         rccsdtq.RCCSDTQ.__init__(self, mf, frozen, mo_coeff, mo_occ)
+
+    do_tri_max_t = property(lambda self: False)
 
     update_amps_ = update_amps_rccsdtq_
 
@@ -344,7 +351,7 @@ if __name__ == "__main__":
     mycc.conv_tol_normt = 1e-10
     mycc.max_cycle = 100
     mycc.verbose = 5
-    mycc.do_diis_maxT = True
+    mycc.do_diis_max_t = True
     mycc.incore_complete = True
     mycc.kernel()
     print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc.e_corr, ref_ecorr, mycc.e_corr - ref_ecorr))

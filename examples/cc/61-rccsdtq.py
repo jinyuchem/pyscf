@@ -30,7 +30,7 @@ print("\n=== Consistency: triangular vs. full T4 storage ===\n")
 # RCCSDTQ with symmetry-compressed (triangular) T4
 # Same as cc.rccsdtq.RCCSDTQ
 #
-mycc1 = cc.RCCSDTQ(mf, high_memory=False)
+mycc1 = cc.RCCSDTQ(mf, compact_tamps=True)
 mycc1.conv_tol = 1e-8
 mycc1.conv_tol_normt = 1e-6
 mycc1.verbose = 5
@@ -46,7 +46,7 @@ print('Triangular-T4 RCCSDTQ e_corr % .12f    Ref % .12f    Diff % .12e' % (
 # RCCSDTQ with full T4 storage
 # Same as cc.rccsdtq_highm.RCCSDTQ
 #
-mycc2 = cc.RCCSDTQ(mf, high_memory=True)
+mycc2 = cc.RCCSDTQ(mf, compact_tamps=False)
 mycc2.conv_tol = 1e-8
 mycc2.conv_tol_normt = 1e-6
 mycc2.verbose = 5
@@ -58,21 +58,21 @@ print('Full-T4 RCCSDQ e_corr       % .12f    Ref % .12f    Diff % .12e' % (
 #
 # Compare amplitudes and conversion functions
 #
-t4_tril = mycc1.t4
+t4_tri = mycc1.t4
 t4_full = mycc2.t4
-t4_tril_from_t4_full = mycc2.tamp_full2tril(t4_full)
-t4_full_from_t4_tril = mycc1.tamp_tril2full(t4_tril)
+t4_tri_from_t4_full = mycc2.tamps_full2tri(t4_full)
+t4_full_from_t4_tri = mycc1.tamps_tri2full(t4_tri)
 print("\n--- Amplitude consistency checks ---")
 print('total energy difference                    % .10e' % (mycc1.e_tot - mycc2.e_tot))
 print('max(abs(t1 difference))                    % .10e' % np.max(np.abs(mycc1.t1 - mycc2.t1)))
 print('max(abs(t2 difference))                    % .10e' % np.max(np.abs(mycc1.t2 - mycc2.t2)))
 print('max(abs(t3 difference))                    % .10e' % np.max(np.abs(mycc1.t3 - mycc2.t3)))
-print('max(abs(t4_tril - t4_tril_from_t4_full))   % .10e' % np.max(np.abs(t4_tril - t4_tril_from_t4_full)))
-print('max(abs(t4_full - t4_full_from_t4_tril))   % .10e' % np.max(np.abs(t4_full - t4_full_from_t4_tril)))
+print('max(abs(t4_tri - t4_tri_from_t4_full))     % .10e' % np.max(np.abs(t4_tri - t4_tri_from_t4_full)))
+print('max(abs(t4_full - t4_full_from_t4_tri))    % .10e' % np.max(np.abs(t4_full - t4_full_from_t4_tri)))
 
 # Rerun RCCSDTQ starting from full T4 amplitudes obtained by expanding the converged triangular T4 amplitudes
-tamps_init = [mycc1.t1, mycc1.t2, mycc1.t3, t4_full_from_t4_tril]
-mycc3 = cc.RCCSDTQ(mf, high_memory=True)
+tamps_init = [mycc1.t1, mycc1.t2, mycc1.t3, t4_full_from_t4_tri]
+mycc3 = cc.RCCSDTQ(mf, compact_tamps=False)
 mycc3.conv_tol = 1e-8
 mycc3.conv_tol_normt = 1e-6
 mycc3.verbose = 5
@@ -82,8 +82,8 @@ print('RCCSDTQ e_corr              % .12f    Ref % .12f    Diff % .12e' % (
         mycc3.e_corr, ref_e_corr, mycc3.e_corr - ref_e_corr))
 
 # Rerun RCCSDTQ starting from triangular T4 amplitudes obtained by compressing the converged full T4 amplitudes
-tamps_init = [mycc1.t1, mycc1.t2, mycc1.t3, t4_tril_from_t4_full]
-mycc4 = cc.RCCSDTQ(mf, high_memory=False)
+tamps_init = [mycc1.t1, mycc1.t2, mycc1.t3, t4_tri_from_t4_full]
+mycc4 = cc.RCCSDTQ(mf, compact_tamps=True)
 mycc4.conv_tol = 1e-8
 mycc4.conv_tol_normt = 1e-6
 mycc4.verbose = 5
@@ -97,7 +97,7 @@ print('RCCSDTQ e_corr              % .12f    Ref % .12f    Diff % .12e' % (
 #
 print("\n=== Restart from DIIS file & checkpoint ===\n")
 
-mycc5 = cc.RCCSDTQ(mf, high_memory=True)
+mycc5 = cc.RCCSDTQ(mf, compact_tamps=False)
 mycc5.conv_tol = 1e-8
 mycc5.conv_tol_normt = 1e-6
 mycc5.verbose = 5
@@ -110,7 +110,7 @@ mycc5.chkfile = 'rccsdtq.chk'
 mycc5.dump_chk()
 
 # Restore from DIIS
-mycc6 = cc.RCCSDTQ(mf, high_memory=True)
+mycc6 = cc.RCCSDTQ(mf, compact_tamps=False)
 mycc6.restore_from_diis_('rccsdtq_diis.h5')
 mycc6.conv_tol = 1e-8
 mycc6.conv_tol_normt = 1e-6
@@ -122,7 +122,7 @@ print('RCCSDTQ e_corr              % .12f    Ref % .12f    Diff % .12e' % (
 # Restore from chk
 chk = 'rccsdtq.chk'
 tamps_init = chkfile.load(chk, 'rccsdtq_highm/tamps')
-mycc7 = cc.RCCSDTQ(mf, high_memory=True)
+mycc7 = cc.RCCSDTQ(mf, compact_tamps=False)
 mycc7.conv_tol = 1e-8
 mycc7.conv_tol_normt = 1e-6
 mycc7.verbose = 5
@@ -147,7 +147,7 @@ A += A.T
 _, R = np.linalg.eigh(A)
 mf.mo_coeff[:, nocc:] = mf.mo_coeff[:, nocc:] @ R
 
-mycc8 = cc.RCCSDTQ(mf, high_memory=True)
+mycc8 = cc.RCCSDTQ(mf, compact_tamps=False)
 mycc8.conv_tol = 1e-8
 mycc8.conv_tol_normt = 1e-6
 mycc8.verbose = 5

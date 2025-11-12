@@ -20,12 +20,12 @@ mf = scf.RHF(mol)
 mf.conv_tol = 1e-14
 mf.kernel()
 
-mycc = cc.RCCSDT(mf, high_memory=True).set(conv_tol=1e-10, conv_tol_normt=1e-8, verbose=5).run()
+mycc = cc.RCCSDT(mf, compact_tamps=False).set(conv_tol=1e-10, conv_tol_normt=1e-8, verbose=5).run()
 print('RCCSDT correlation energy % .12f    Ref % .12f    Diff % .12e' % (
         mycc.e_corr, -0.2188784727114157, mycc.e_corr - -0.2188784727114157))
 
 mf_uhf = scf.addons.convert_to_uhf(mf)
-myucc = cc.UCCSDT(mf_uhf, high_memory=True).set(conv_tol=1e-10, conv_tol_normt=1e-8, verbose=5).run()
+myucc = cc.UCCSDT(mf_uhf, compact_tamps=False).set(conv_tol=1e-10, conv_tol_normt=1e-8, verbose=5).run()
 print('UCCSDT correlation energy % .12f    Ref % .12f    Diff % .12e' % (
         myucc.e_corr, -0.2188784727114157, myucc.e_corr - -0.2188784727114157))
 
@@ -33,13 +33,13 @@ t1_rhf, t2_rhf, t3_rhf = mycc.tamps
 t1_uhf, t2_uhf, t3_uhf = myucc.tamps
 
 # Transform UCCSDT amplitudes to RHF representation
-t1_uhf2rhf = myucc.tamp_uhf2rhf(t1_uhf)
-t2_uhf2rhf = myucc.tamp_uhf2rhf(t2_uhf)
-t3_uhf2rhf = myucc.tamp_uhf2rhf(t3_uhf)
+tamps_uhf2rhf = myucc.tamps_uhf2rhf(myucc.tamps)
 # Transform RCCSDT amplitudes to UHF representation
-t1_rhf2uhf = myucc.tamp_rhf2uhf(t1_rhf, order=1)
-t2_rhf2uhf = myucc.tamp_rhf2uhf(t2_rhf, order=2)
-t3_rhf2uhf = myucc.tamp_rhf2uhf(t3_rhf, order=3)
+tamps_rhf2uhf = myucc.tamps_rhf2uhf(mycc.tamps)
+t1_rhf, t2_rhf, t3_rhf = mycc.tamps
+t1_uhf2rhf, t2_uhf2rhf, t3_uhf2rhf = tamps_uhf2rhf
+t1_uhf, t2_uhf, t3_uhf = myucc.tamps
+t1_rhf2uhf, t2_rhf2uhf, t3_rhf2uhf = tamps_rhf2uhf
 # Compare correlation energy and cluster amplitudes between RCCSDT and UCCSDT
 print('RCCSDT etot - UCCSDT etot             % .10e' % (mycc.e_tot - myucc.e_tot))
 print('max(abs(t1_rhf - t1_uhf2rhf))         % .10e' % np.max(np.abs(t1_rhf - t1_uhf2rhf)))
@@ -56,14 +56,14 @@ print('max(abs(t3aab_uhf - t3aab_rhf2uhf))   % .10e' % np.max(np.abs(t3_uhf[1] -
 
 # Restart RCCSDT using amplitudes converted from UCCSDT
 tamps_init_rhf = [t1_uhf2rhf, t2_uhf2rhf, t3_uhf2rhf]
-mycc2 = cc.RCCSDT(mf, high_memory=True).set(conv_tol=1e-10, conv_tol_normt=1e-8, verbose=5)
+mycc2 = cc.RCCSDT(mf, compact_tamps=False).set(conv_tol=1e-10, conv_tol_normt=1e-8, verbose=5)
 mycc2.kernel(tamps=tamps_init_rhf)
 print('RCCSDT correlation energy % .12f    Ref % .12f    Diff % .12e' % (
         mycc2.e_corr, -0.2188784727114157, mycc2.e_corr - -0.2188784727114157))
 
 # Restart UCCSDT using amplitudes converted from RCCSDT
 tamps_init_uhf = [t1_rhf2uhf, t2_rhf2uhf, t3_rhf2uhf]
-myucc2 = cc.UCCSDT(mf, high_memory=True).set(conv_tol=1e-10, conv_tol_normt=1e-8, verbose=5)
+myucc2 = cc.UCCSDT(mf, compact_tamps=False).set(conv_tol=1e-10, conv_tol_normt=1e-8, verbose=5)
 myucc2.kernel(tamps=tamps_init_uhf)
 print('UCCSDT correlation energy % .12f    Ref % .12f    Diff % .12e' % (
         myucc2.e_corr, -0.2188784727114157, myucc2.e_corr - -0.2188784727114157))

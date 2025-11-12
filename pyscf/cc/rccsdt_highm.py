@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 # Author: Yu Jin <yjin@flatironinstitute.org>
+#         Huanchen Zhai <hczhai.ok@gmail.com>
 #
 
 '''
@@ -27,39 +28,37 @@ Chem. Phys. Lett. 228, 233 (1994); DOI:10.1016/0009-2614(94)00898-1
 
 import numpy as np
 import numpy
+import functools
 import ctypes
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.mp.mp2 import get_nocc, get_nmo, get_frozen_mask, get_e_hf, _mo_without_core
 from pyscf.cc import _ccsd, rccsdt
-from pyscf.cc.rccsdt import (einsum_, t3_spin_summation_inplace_, update_t1_fock_eris_, intermediates_t1t2_,
-                            compute_r1r2, r1r2_divide_e_, intermediates_t3_, _PhysicistsERIs)
+from pyscf.cc.rccsdt import (_einsum, t3_spin_summation_inplace_, update_t1_fock_eris, intermediates_t1t2,
+                            compute_r1r2, r1r2_divide_e_, intermediates_t3, _PhysicistsERIs)
 from pyscf import __config__
 
+
+_libccsdt = lib.load_library('libccsdt')
 
 def t3_spin_summation(A, B, nocc3, nvir, pattern, alpha=1.0, beta=0.0):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
     assert B.dtype == np.float64 and B.flags['C_CONTIGUOUS'], "B must be a contiguous float64 array"
     pattern_c = pattern.encode('utf-8')
-    _ccsd.libccsdt.t3_spin_summation_c(
-        A.ctypes.data_as(ctypes.c_void_p),
-        B.ctypes.data_as(ctypes.c_void_p),
-        ctypes.c_int64(nocc3),
-        ctypes.c_int64(nvir),
+    _libccsdt.t3_spin_summation(
+        A.ctypes.data_as(ctypes.c_void_p), B.ctypes.data_as(ctypes.c_void_p),
+        ctypes.c_int64(nocc3), ctypes.c_int64(nvir),
         ctypes.c_char_p(pattern_c),
-        ctypes.c_double(alpha),
-        ctypes.c_double(beta)
+        ctypes.c_double(alpha), ctypes.c_double(beta)
     )
     return B
 
 def t3_perm_symmetrize_inplace_(A, nocc, nvir, alpha=1.0, beta=0.0):
     assert A.dtype == np.float64 and A.flags['C_CONTIGUOUS'], "A must be a contiguous float64 array"
-    _ccsd.libccsdt.t3_perm_symmetrize_inplace_c(
+    _libccsdt.t3_perm_symmetrize_inplace_(
         A.ctypes.data_as(ctypes.c_void_p),
-        ctypes.c_int64(nocc),
-        ctypes.c_int64(nvir),
-        ctypes.c_double(alpha),
-        ctypes.c_double(beta)
+        ctypes.c_int64(nocc), ctypes.c_int64(nvir),
+        ctypes.c_double(alpha), ctypes.c_double(beta)
     )
     return A
 
@@ -79,71 +78,74 @@ def purify_tamps_(r):
         r[(slice(None), ) * order + tuple(idxr)] = 0.0
     return r
 
-def r1r2_add_t3_(mycc, t3, r1, r2):
+def r1r2_add_t3_(mycc, r1, r2, t1_fock, t1_eris, t3):
     '''Add the T3 contributions to r1 and r2. T3 amplitudes are stored in full form.'''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
-    t1_fock, t1_eris = mycc.t1_fock, mycc.t1_eris
 
-    cc_t3 = np.empty_like(t3)
-    t3_spin_summation(t3, cc_t3, nocc**3, nvir, "P3_422", 1.0, 0.0)
-    einsum_(mycc, 'jkbc,kijcab->ia', t1_eris[:nocc, :nocc, nocc:, nocc:], cc_t3, out=r1, alpha=0.5, beta=1.0)
-    cc_t3 = None
-
-    # TODO: Avoid recomputing c_t3; cache or reuse the result
     c_t3 = np.empty_like(t3)
-    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
-    einsum_(mycc, "kc,kijcab->ijab", t1_fock[:nocc, nocc:], c_t3, out=r2, alpha=0.5, beta=1.0)
-    einsum_(mycc, "bkcd,kijdac->ijab", t1_eris[nocc:, :nocc, nocc:, nocc:], c_t3, out=r2, alpha=1.0, beta=1.0)
-    einsum_(mycc, "kljc,likcab->ijab", t1_eris[:nocc, :nocc, :nocc, nocc:], c_t3, out=r2, alpha=-1.0, beta=1.0)
+    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_422", 1.0, 0.0)
+    einsum('jkbc,kijcab->ia', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3, out=r1, alpha=0.5, beta=1.0)
 
-def intermediates_t3_add_t3_(mycc, t3):
+    t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
+    einsum("kc,kijcab->ijab", t1_fock[:nocc, nocc:], c_t3, out=r2, alpha=0.5, beta=1.0)
+    einsum("bkcd,kijdac->ijab", t1_eris[nocc:, :nocc, nocc:, nocc:], c_t3, out=r2, alpha=1.0, beta=1.0)
+    einsum("kljc,likcab->ijab", t1_eris[:nocc, :nocc, :nocc, nocc:], c_t3, out=r2, alpha=-1.0, beta=1.0)
+    c_t3 = None
+    return r1, r2
+
+def intermediates_t3_add_t3_(mycc, W_vooo, W_vvvo, t1_eris, t3):
     '''Add the T3-dependent contributions to the T3 intermediates, with T3 stored in full form.'''
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
-    # TODO: Avoid recomputing c_t3; cache or reuse the result
+
     c_t3 = np.empty_like(t3)
     t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
 
-    einsum_(mycc, 'lmde,mijead->alij', mycc.t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3,
-            out=mycc.W_vooo_tc, alpha=1.0, beta=1.0)
-    einsum_(mycc, 'lmde,mjleba->abdj', mycc.t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3,
-            out=mycc.W_vvvo_tc, alpha=-1.0, beta=1.0)
-    return mycc
+    einsum('lmde,mijead->alij', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3, out=W_vooo, alpha=1.0, beta=1.0)
+    einsum('lmde,mjleba->abdj', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t3, out=W_vvvo, alpha=-1.0, beta=1.0)
+    c_t3 = None
+    return W_vooo, W_vvvo
 
-def compute_r3(mycc, t2, t3):
+def compute_r3(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv, t2, t3):
     '''Compute r3 with full T3 amplitudes; r3 is returned in full form as well.
     r3 will require a symmetry restoration step afterward.
     '''
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
+    backend = mycc.einsum_backend
+    einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
-    # TODO: Avoid recomputing c_t3; cache or reuse the result
+
     c_t3 = np.empty_like(t3)
     t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
 
     r3 = np.empty_like(t3)
     # R3: P0 & P1 & P2
-    einsum_(mycc, 'abdj,ikdc->ijkabc', mycc.W_vvvo_tc, t2, out=r3, alpha=1.0, beta=0.0)
-    einsum_(mycc, 'alij,lkbc->ijkabc', mycc.W_vooo_tc, t2, out=r3, alpha=-1.0, beta=1.0)
-    einsum_(mycc, 'ad,ijkdbc->ijkabc', mycc.tf_vv, t3, out=r3, alpha=0.5, beta=1.0)
-    time1 = log.timer_debug1('t3: W_vvvo * t2, W_vooo * t2, f_vv * t3', *time1)
+    einsum('abdj,ikdc->ijkabc', W_vvvo, t2, out=r3, alpha=1.0, beta=0.0)
+    einsum('alij,lkbc->ijkabc', W_vooo, t2, out=r3, alpha=-1.0, beta=1.0)
+    einsum('ad,ijkdbc->ijkabc', F_vv, t3, out=r3, alpha=0.5, beta=1.0)
+    time1 = log.timer_debug1('t3: W_vvvo * t2, W_vooo * t2, F_vv * t3', *time1)
     # R3: P3 & P4
-    einsum_(mycc, 'li,ljkabc->ijkabc', mycc.tf_oo, t3, out=r3, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'ladi,ljkdbc->ijkabc', mycc.W_ovvo_tc, c_t3, out=r3, alpha=0.25, beta=1.0)
+    einsum('li,ljkabc->ijkabc', F_oo, t3, out=r3, alpha=-0.5, beta=1.0)
+    einsum('ladi,ljkdbc->ijkabc', W_ovvo, c_t3, out=r3, alpha=0.25, beta=1.0)
     c_t3 = None
-    time1 = log.timer_debug1('t3: f_oo * t3, W_ovvo * t3', *time1)
+    time1 = log.timer_debug1('t3: F_oo * t3, W_ovvo * t3', *time1)
     # R3: P5 & P6
-    einsum_(mycc, 'laid,jlkdbc->ijkabc', mycc.W_ovov_tc, t3, out=r3, alpha=-0.5, beta=1.0)
-    einsum_(mycc, 'lbid,jlkdac->ijkabc', mycc.W_ovov_tc, t3, out=r3, alpha=-1.0, beta=1.0)
+    einsum('laid,jlkdbc->ijkabc', W_ovov, t3, out=r3, alpha=-0.5, beta=1.0)
+    einsum('lbid,jlkdac->ijkabc', W_ovov, t3, out=r3, alpha=-1.0, beta=1.0)
     time1 = log.timer_debug1('t3: W_ovov * t3', *time1)
     # R3: P7
-    einsum_(mycc, 'lmij,lmkabc->ijkabc', mycc.W_oooo, t3, out=r3, alpha=0.5, beta=1.0)
+    einsum('lmij,lmkabc->ijkabc', W_oooo, t3, out=r3, alpha=0.5, beta=1.0)
     time1 = log.timer_debug1('t3: W_oooo * t3', *time1)
     # R3: P8
-    einsum_(mycc, 'abde,ijkdec->ijkabc', mycc.W_vvvv_tc, t3, out=r3, alpha=0.5, beta=1.0)
+    einsum('abde,ijkdec->ijkabc', W_vvvv, t3, out=r3, alpha=0.5, beta=1.0)
     time1 = log.timer_debug1('t3: W_vvvv * t3', *time1)
     return r3
 
@@ -154,6 +156,7 @@ def r3_divide_e_(mycc, r3, mo_energy):
                 + eia[None, None, :, None, None, :])
     r3 /= eijkabc
     eijkabc = None
+    return r3
 
 def update_amps_rccsdt_(mycc, tamps, eris):
     '''Update RCCSDT amplitudes in place, with T3 amplitudes stored in full form.'''
@@ -164,14 +167,15 @@ def update_amps_rccsdt_(mycc, tamps, eris):
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     t1, t2, t3 = tamps
-    mo_energy = eris.mo_energy.copy()
+    mo_energy = eris.mo_energy
 
-    update_t1_fock_eris_(mycc, t1, eris)
+    t1_fock, t1_eris = update_t1_fock_eris(mycc, t1, eris)
     time1 = log.timer_debug1('update fock and eris', *time0)
-    intermediates_t1t2_(mycc, t2)
+    F_oo, F_vv, W_oooo, W_ovvo, W_ovov = intermediates_t1t2(mycc, t1_fock, t1_eris, t2)
     time1 = log.timer_debug1('t1t2: update intermediates', *time1)
-    r1, r2 = compute_r1r2(mycc, t2)
-    r1r2_add_t3_(mycc, t3, r1, r2)
+    r1, r2 = compute_r1r2(mycc, t1_fock, t1_eris, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, t2)
+    W_ovvo, W_ovov = None, None
+    r1r2_add_t3_(mycc, r1, r2, t1_fock, t1_eris, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
     # symmetrize r2
     r2 += r2.transpose(1, 0, 3, 2)
@@ -187,11 +191,12 @@ def update_amps_rccsdt_(mycc, tamps, eris):
     time1 = log.timer_debug1('t1t2: update t1 & t2', *time1)
     time0 = log.timer_debug1('t1t2 total', *time0)
 
-    intermediates_t3_(mycc, t2)
-    intermediates_t3_add_t3_(mycc, t3)
-    mycc.t1_eris = None
+    W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = intermediates_t3(mycc, t1_fock, t1_eris, t2)
+    intermediates_t3_add_t3_(mycc, W_vooo, W_vvvo, t1_eris, t3)
+    t1_fock, t1_eris = None, None
     time1 = log.timer_debug1('t3: update intermediates', *time0)
-    r3 = compute_r3(mycc, t2, t3)
+    r3 = compute_r3(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv, t2, t3)
+    F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = (None,) * 8
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrize r3
     t3_perm_symmetrize_inplace_(r3, nocc, nvir, 1.0, 0.0)
@@ -213,10 +218,10 @@ def update_amps_rccsdt_(mycc, tamps, eris):
 
 class RCCSDT(rccsdt.RCCSDT):
 
-    do_tril_maxT = getattr(__config__, 'cc_rccsdt_highm_RCCSDT_do_tril_maxT', False)
-
     def __init__(self, mf, frozen=0, mo_coeff=None, mo_occ=None):
         rccsdt.RCCSDT.__init__(self, mf, frozen, mo_coeff, mo_occ)
+
+    do_tri_max_t = property(lambda self: False)
 
     update_amps_ = update_amps_rccsdt_
 
@@ -240,7 +245,7 @@ if __name__ == "__main__":
     mycc.conv_tol_normt = 1e-10
     mycc.max_cycle = 100
     mycc.verbose = 5
-    mycc.do_diis_maxT = True
+    mycc.do_diis_max_t = True
     mycc.incore_complete = True
     mycc.kernel()
     print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc.e_corr, ref_ecorr, mycc.e_corr - ref_ecorr))

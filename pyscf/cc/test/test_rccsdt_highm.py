@@ -60,7 +60,7 @@ def tearDownModule():
 class KnownValues(unittest.TestCase):
     def test_roccsdt(self):
         mf = scf.ROHF(mol).run()
-        mycc = cc.RCCSDT(mf, high_memory=True).run()
+        mycc = cc.RCCSDT(mf, compact_tamps=False).run()
         self.assertAlmostEqual(mycc.e_tot, -76.12042524193436, 6)
 
     def test_dump_chk(self):
@@ -68,27 +68,27 @@ class KnownValues(unittest.TestCase):
         cc1.nmo = mf.mo_energy.size
         cc1.nocc = mol.nelectron // 2
         cc1.dump_chk()
-        cc1 = cc.RCCSDT(mf, high_memory=True)
+        cc1 = cc.RCCSDT(mf, compact_tamps=False)
         cc1.__dict__.update(lib.chkfile.load(cc1.chkfile, 'rccsdt_highm'))
         e = cc1.energy(cc1.tamps, eris)
         self.assertAlmostEqual(e, -0.1364767434621007, 7)
 
     def test_incore_complete(self):
-        cc1 = cc.RCCSDT(mf, high_memory=True)
+        cc1 = cc.RCCSDT(mf, compact_tamps=False)
         cc1.incore_complete = True
         cc1.conv_tol = 1e-10
         cc1.kernel()
         self.assertAlmostEqual(cc1.e_corr, -0.1364767434621007, 7)
 
-    def test_no_do_diis_maxT(self):
-        cc1 = cc.RCCSDT(mf, high_memory=True)
-        cc1.do_diis_maxT = False
+    def test_no_do_diis_max_t(self):
+        cc1 = cc.RCCSDT(mf, compact_tamps=False)
+        cc1.do_diis_max_t = False
         cc1.conv_tol = 1e-10
         cc1.kernel()
         self.assertAlmostEqual(cc1.e_corr, -0.1364767434621007, 7)
 
     def test_no_diis(self):
-        cc1 = cc.RCCSDT(mf, high_memory=True)
+        cc1 = cc.RCCSDT(mf, compact_tamps=False)
         cc1.diis = False
         cc1.max_cycle = 4
         cc1.kernel()
@@ -96,7 +96,7 @@ class KnownValues(unittest.TestCase):
 
     def test_restart(self):
         ftmp = tempfile.NamedTemporaryFile()
-        cc1 = cc.RCCSDT(mf, high_memory=True)
+        cc1 = cc.RCCSDT(mf, compact_tamps=False)
         cc1.max_cycle = 5
         cc1.kernel()
         ref = cc1.e_corr
@@ -124,7 +124,7 @@ class KnownValues(unittest.TestCase):
         cc1.kernel(tamps)
         self.assertAlmostEqual(cc1.e_corr, ref, 8)
 
-        cc2 = cc.RCCSDT(mf, high_memory=True)
+        cc2 = cc.RCCSDT(mf, compact_tamps=False)
         cc2.restore_from_diis_(ftmp.name)
         self.assertAlmostEqual(abs(cc1.t1 - cc2.t1).max(), 0, 9)
         self.assertAlmostEqual(abs(cc1.t2 - cc2.t2).max(), 0, 9)
@@ -186,7 +186,7 @@ class KnownValues(unittest.TestCase):
         mol = gto.M(atom='He', basis=('631g', [[0, (.2, 1)], [0, (.5, 1)]]), verbose=0)
         mf = scf.RHF(mol).run()
         mycc1 = cc.CCSD(mf).run(conv_tol=1e-10)
-        mycc2 = cc.RCCSDT(mf, high_memory=True).run(conv_tol=1e-10)
+        mycc2 = cc.RCCSDT(mf, compact_tamps=False).run(conv_tol=1e-10)
         self.assertAlmostEqual(mycc1.e_corr, mycc2.e_corr, 9)
         self.assertAlmostEqual(abs(mycc1.t1 - mycc2.t1).max(), 0, 8)
         self.assertAlmostEqual(abs(mycc1.t2 - mycc2.t2).max(), 0, 8)

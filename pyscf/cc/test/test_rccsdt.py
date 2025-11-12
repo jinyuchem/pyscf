@@ -67,10 +67,8 @@ class KnownValues(unittest.TestCase):
         mycc = rccsdt.RCCSDT(mf)
         numpy.random.seed(1)
         mo_coeff = numpy.random.random(mf.mo_coeff.shape)
-        eris = rccsdt._make_eris_incore_rccsdt(mycc, mo_coeff)
-
-        self.assertAlmostEqual(lib.fp(eris.pqrs), -74.19824202279376, 11)
-        self.assertAlmostEqual(lib.fp(eris.oovv), 8.62279293518506, 11)
+        eris = rccsdt._make_eris_incore_rcc(mycc, mo_coeff)
+        self.assertAlmostEqual(lib.fp(eris.pppp), -74.19824202279376, 11)
 
     def test_dump_chk(self):
         cc1 = mycc.copy()
@@ -112,15 +110,15 @@ class KnownValues(unittest.TestCase):
         cc1.kernel()
         self.assertAlmostEqual(cc1.e_corr, -0.1364767434621007, 7)
 
-    def test_no_do_diis_maxT(self):
+    def test_no_do_diis_max_t(self):
         cc1 = cc.RCCSDT(mf)
-        cc1.do_diis_maxT = False
+        cc1.do_diis_max_t = False
         cc1.conv_tol = 1e-10
         cc1.kernel()
         self.assertAlmostEqual(cc1.e_corr, -0.1364767434621007, 7)
 
     def test_high_memory(self):
-        cc1 = cc.RCCSDT(mf, high_memory=True)
+        cc1 = cc.RCCSDT(mf, compact_tamps=False)
         cc1.conv_tol = 1e-10
         cc1.kernel()
         self.assertAlmostEqual(cc1.e_corr, -0.1364767434621007, 7)
@@ -130,8 +128,8 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(cc2.e_corr, -0.1364767434621007, 7)
         self.assertAlmostEqual(abs(cc1.tamps[0] - cc2.tamps[0]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[1] - cc2.tamps[1]).max(), 0, 7)
-        self.assertAlmostEqual(abs(cc1.tamps[2] - cc2.tamp_tril2full(cc2.tamps[2])).max(), 0, 7)
-        self.assertAlmostEqual(abs(cc1.tamp_full2tril(cc1.tamps[2]) - cc2.tamps[2]).max(), 0, 7)
+        self.assertAlmostEqual(abs(cc1.tamps[2] - cc2.tamps_tri2full(cc2.tamps[2])).max(), 0, 7)
+        self.assertAlmostEqual(abs(cc1.tamps_full2tri(cc1.tamps[2]) - cc2.tamps[2]).max(), 0, 7)
 
     def test_no_diis(self):
         cc1 = cc.RCCSDT(mf)

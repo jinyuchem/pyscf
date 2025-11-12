@@ -71,7 +71,7 @@ class KnownValues(unittest.TestCase):
 
     def test_rccsdt_s0(self):
         mf = scf.RHF(mol).run()
-        myrcc = cc.RCCSDT(mf, high_memory=True).run(conv_tol=1e-10)
+        myrcc = cc.RCCSDT(mf, compact_tamps=False).run(conv_tol=1e-10)
         self.assertAlmostEqual(myrcc.e_tot, myucc.e_tot, 8)
 
     def test_blocksize_s0(self):
@@ -131,48 +131,48 @@ class KnownValues(unittest.TestCase):
         # self.assertAlmostEqual(mycc.e_tot, myucc2.e_tot, 8)
 
     def test_high_memory_s0(self):
-        cc1 = cc.UCCSDT(mf, high_memory=True).run(conv_tol=1e-10)
+        cc1 = cc.UCCSDT(mf, compact_tamps=False).run(conv_tol=1e-10)
         self.assertAlmostEqual(cc1.e_tot, myucc.e_tot, 8)
-        cc2 = cc.UCCSDT(mf, high_memory=False).run(conv_tol=1e-10)
+        cc2 = cc.UCCSDT(mf, compact_tamps=True).run(conv_tol=1e-10)
         self.assertAlmostEqual(cc2.e_tot, myucc.e_tot, 8)
         self.assertAlmostEqual(abs(cc1.tamps[0][0] - cc2.tamps[0][0]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[0][1] - cc2.tamps[0][1]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[1][0] - cc2.tamps[1][0]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[1][1] - cc2.tamps[1][1]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[1][2] - cc2.tamps[1][2]).max(), 0, 7)
-        t3_full, t3_tril = cc1.tamps[2], cc2.tamps[2]
-        t3_full2tril = cc1.tamp_full2tril(t3_full)
-        t3_tril2full = cc2.tamp_tril2full(t3_tril)
-        self.assertAlmostEqual(abs(t3_full[0] - t3_tril2full[0]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_full[1] - t3_tril2full[1]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_full[2] - t3_tril2full[2]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_full[3] - t3_tril2full[3]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_tril[0] - t3_full2tril[0]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_tril[1] - t3_full2tril[1]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_tril[2] - t3_full2tril[2]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_tril[3] - t3_full2tril[3]).max(), 0, 7)
+        t3_full, t3_tri = cc1.tamps[2], cc2.tamps[2]
+        t3_full2tri = cc1.tamps_full2tri(t3_full)
+        t3_tri2full = cc2.tamps_tri2full(t3_tri)
+        self.assertAlmostEqual(abs(t3_full[0] - t3_tri2full[0]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_full[1] - t3_tri2full[1]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_full[2] - t3_tri2full[2]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_full[3] - t3_tri2full[3]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_tri[0] - t3_full2tri[0]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_tri[1] - t3_full2tri[1]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_tri[2] - t3_full2tri[2]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_tri[3] - t3_full2tri[3]).max(), 0, 7)
 
     def test_high_memory_s2(self):
-        cc1 = cc.UCCSDT(mf_s2, high_memory=True).run(conv_tol=1e-10)
+        cc1 = cc.UCCSDT(mf_s2, compact_tamps=False).run(conv_tol=1e-10)
         self.assertAlmostEqual(cc1.e_tot, myucc2.e_tot, 8)
-        cc2 = cc.UCCSDT(mf_s2, high_memory=False).run(conv_tol=1e-10)
+        cc2 = cc.UCCSDT(mf_s2, compact_tamps=True).run(conv_tol=1e-10)
         self.assertAlmostEqual(cc2.e_tot, myucc2.e_tot, 8)
         self.assertAlmostEqual(abs(cc1.tamps[0][0] - cc2.tamps[0][0]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[0][1] - cc2.tamps[0][1]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[1][0] - cc2.tamps[1][0]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[1][1] - cc2.tamps[1][1]).max(), 0, 7)
         self.assertAlmostEqual(abs(cc1.tamps[1][2] - cc2.tamps[1][2]).max(), 0, 7)
-        t3_full, t3_tril = cc1.tamps[2], cc2.tamps[2]
-        t3_full2tril = cc1.tamp_full2tril(t3_full)
-        t3_tril2full = cc2.tamp_tril2full(t3_tril)
-        self.assertAlmostEqual(abs(t3_full[0] - t3_tril2full[0]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_full[1] - t3_tril2full[1]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_full[2] - t3_tril2full[2]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_full[3] - t3_tril2full[3]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_tril[0] - t3_full2tril[0]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_tril[1] - t3_full2tril[1]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_tril[2] - t3_full2tril[2]).max(), 0, 7)
-        self.assertAlmostEqual(abs(t3_tril[3] - t3_full2tril[3]).max(), 0, 7)
+        t3_full, t3_tri = cc1.tamps[2], cc2.tamps[2]
+        t3_full2tri = cc1.tamps_full2tri(t3_full)
+        t3_tri2full = cc2.tamps_tri2full(t3_tri)
+        self.assertAlmostEqual(abs(t3_full[0] - t3_tri2full[0]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_full[1] - t3_tri2full[1]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_full[2] - t3_tri2full[2]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_full[3] - t3_tri2full[3]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_tri[0] - t3_full2tri[0]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_tri[1] - t3_full2tri[1]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_tri[2] - t3_full2tri[2]).max(), 0, 7)
+        self.assertAlmostEqual(abs(t3_tri[3] - t3_full2tri[3]).max(), 0, 7)
 
     def test_with_df_s0(self):
         mf = scf.UHF(mol).density_fit(auxbasis='weigend').run()
@@ -280,11 +280,11 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(abs(cc1.t3[2] - cc2.t3[2]).max(), 0, 9)
         self.assertAlmostEqual(abs(cc1.t3[3] - cc2.t3[3]).max(), 0, 9)
 
-    def test_restart_s2_not_do_diis_maxT(self):
+    def test_restart_s2_not_do_diis_max_t(self):
         ftmp = tempfile.NamedTemporaryFile()
         cc1 = cc.UCCSDT(mf_s2)
         cc1.max_cycle = 5
-        cc1.do_diis_maxT = False
+        cc1.do_diis_max_t = False
         cc1.kernel()
         ref = cc1.e_corr
 
@@ -315,7 +315,7 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(cc1.e_corr, ref, 8)
 
         cc2 = cc.UCCSDT(mf_s2)
-        cc2.do_diis_maxT = False
+        cc2.do_diis_max_t = False
         cc2.restore_from_diis_(ftmp.name)
         self.assertAlmostEqual(abs(cc1.t1[0] - cc2.t1[0]).max(), 0, 9)
         self.assertAlmostEqual(abs(cc1.t1[1] - cc2.t1[1]).max(), 0, 9)
@@ -328,14 +328,11 @@ class KnownValues(unittest.TestCase):
         nao, nmo = mf.mo_coeff[0].shape
         numpy.random.seed(1)
         mo_coeff = numpy.random.random((2, nao, nmo))
-        eris = cc.uccsdt._make_eris_incore_uccsdt(ucc1, mo_coeff)
+        eris = cc.uccsdt._make_eris_incore_ucc(ucc1, mo_coeff)
 
-        self.assertAlmostEqual(lib.fp(eris.pqrs), -74.1982420227933, 11)
-        self.assertAlmostEqual(lib.fp(eris.oovv), 8.62279293518506, 11)
-        self.assertAlmostEqual(lib.fp(eris.PQRS), 135.11334409711856, 11)
-        self.assertAlmostEqual(lib.fp(eris.OOVV), -113.0614992763408, 11)
-        self.assertAlmostEqual(lib.fp(eris.pQrS), -35.264209872485665, 11)
-        self.assertAlmostEqual(lib.fp(eris.oOvV), -135.33810230487222, 11)
+        self.assertAlmostEqual(lib.fp(eris.pppp), -74.1982420227933, 11)
+        self.assertAlmostEqual(lib.fp(eris.PPPP), 135.11334409711856, 11)
+        self.assertAlmostEqual(lib.fp(eris.pPpP), -35.264209872485665, 11)
 
     def test_uccsdt_frozen(self):
         ucc1 = myucc.copy()

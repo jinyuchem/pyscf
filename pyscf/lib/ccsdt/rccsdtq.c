@@ -14,6 +14,7 @@
 
  *
  * Author: Yu Jin <yjin@flatironinstitute.org>
+ *         Huanchen Zhai <hczhai.ok@gmail.com>
  */
 
 #include <stdbool.h>
@@ -29,7 +30,7 @@
 //          "P4_422"  : P(A) = (1 + 0 * P_c^d) (1 + 0 * P_b^c + 0 * P_b^d) (2 - P_a^b - P_a^c - P_a^d) A
 //          "P4_201"  : P(A) = (1 + 0 * P_c^d) (2 - P_b^c - P_b^d) (2 - P_a^b - P_a^c - P_a^d) A
 // alpha, beta: A = beta * A + alpha * P(A)
-void t4_spin_summation_inplace_c(double *A, int64_t nocc4, int64_t nvir, char *pattern, double alpha, double beta)
+void t4_spin_summation_inplace_(double *A, int64_t nocc4, int64_t nvir, char *pattern, double alpha, double beta)
 {
     int64_t ijkl;
     const int64_t bl = 8;
@@ -489,8 +490,8 @@ void t4_spin_summation_inplace_c(double *A, int64_t nocc4, int64_t nvir, char *p
 // A: pointer to T4 tensor (size nocc4 * nvir**4)
 // B: pointer to transformed T4 tensor
 // alpha, beta: B = beta * A + alpha * P(A)
-void t4_spin_summation_c(const double *A, double *B, int64_t nocc4, int64_t nvir,
-                         char *pattern, double alpha, double beta)
+void t4_spin_summation(const double *A, double *B, int64_t nocc4, int64_t nvir,
+                       char *pattern, double alpha, double beta)
 {
     int64_t ijkl;
     const int64_t bl = 8;
@@ -956,7 +957,7 @@ void t4_spin_summation_c(const double *A, double *B, int64_t nocc4, int64_t nvir
 //   nvir  : number of virtual orbitals
 //   alpha : scaling factor for projected contribution
 //   beta  : scaling factor for original tensor
-void t4_perm_symmetrize_inplace_c(double *A, int64_t nocc, int64_t nvir, double alpha, double beta)
+void t4_perm_symmetrize_inplace_(double *A, int64_t nocc, int64_t nvir, double alpha, double beta)
 {
     const int64_t bl = 8;
     int64_t nvv = nvir * nvir;
@@ -1208,7 +1209,7 @@ void t4_perm_symmetrize_inplace_c(double *A, int64_t nocc, int64_t nvir, double 
     }
 }
 
-void eijkl_division_c(double *r4, const double *eia, const int64_t nocc, const int64_t nvir)
+void eijkl_division_(double *r4, const double *eia, const int64_t nocc, const int64_t nvir)
 {
 #pragma omp parallel for collapse(4) schedule(static)
     for (int64_t i = 0; i < nocc; i++)
@@ -1255,7 +1256,7 @@ void eijkl_division_c(double *r4, const double *eia, const int64_t nocc, const i
     }
 }
 
-void t4_add_c(double *t4, const double *r4, const int64_t nocc4, const int64_t nvir)
+void t4_add_(double *t4, const double *r4, const int64_t nocc4, const int64_t nvir)
 {
     const int64_t total_size = nocc4 * nvir * nvir * nvir * nvir;
 
@@ -1299,23 +1300,23 @@ const int64_t tp_t4[24][4] = {
 // representation without forming the full tensor in memory.
 //
 // Input:
-//   t4_tril                            : triangular-stored T4 amplitudes
-//   t4_blk                             : output buffer [blk_i * blk_j * blk_k * nvir^3]
-//   map                                : mapping index table for (i, j, k) -> tril index
+//   t4_tri                             : triangular-stored T4 amplitudes
+//   t4_blk                             : output buffer [blk_i * blk_j * blk_k * nvir**3]
+//   map                                : mapping index table for (i, j, k) -> tri index
 //   mask                               : mask indicating which (i, j, k) indices are stored (triangular domain)
 //   [i0:i1), [j0:j1), [k0:k1), [l0:l1) : occupied index block ranges
 //   nocc, nvir                         : number of occupied / virtual orbitals
 //   blk_i, blk_j, blk_k, blk_l         : block sizes for the destination tensor
-void unpack_t4_tril2block_c(const double *restrict t4_tril,
-                            double *restrict t4_blk,
-                            const int64_t *restrict map,
-                            const bool *restrict mask,
-                            int64_t i0, int64_t i1,
-                            int64_t j0, int64_t j1,
-                            int64_t k0, int64_t k1,
-                            int64_t l0, int64_t l1,
-                            int64_t nocc, int64_t nvir,
-                            int64_t blk_i, int64_t blk_j, int64_t blk_k, int64_t blk_l)
+void unpack_t4_tri2block_(const double *restrict t4_tri,
+                          double *restrict t4_blk,
+                          const int64_t *restrict map,
+                          const bool *restrict mask,
+                          int64_t i0, int64_t i1,
+                          int64_t j0, int64_t j1,
+                          int64_t k0, int64_t k1,
+                          int64_t l0, int64_t l1,
+                          int64_t nocc, int64_t nvir,
+                          int64_t blk_i, int64_t blk_j, int64_t blk_k, int64_t blk_l)
 {
 #define MAP(sym, w, x, y, z) map[((((sym) * nocc + (w)) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 #define MASK(sym, w, x, y, z) mask[((((sym) * nocc + (w)) * nocc + (x)) * nocc + (y)) * nocc + (z)]
@@ -1361,7 +1362,7 @@ void unpack_t4_tril2block_c(const double *restrict t4_tril,
                                         int64_t src_idx = src_base + ((a * nvir + b) * nvir + c) * nvir + d;
                                         int64_t dest_idx = dest_base + ((aa * nvir + bb) * nvir + cc) * nvir + dd;
 
-                                        t4_blk[dest_idx] = t4_tril[src_idx];
+                                        t4_blk[dest_idx] = t4_tri[src_idx];
                                     }
                                 }
                             }
@@ -1379,31 +1380,31 @@ void unpack_t4_tril2block_c(const double *restrict t4_tril,
 //
 // This routine performs the reverse of the unpacking:
 // given a (i0:i1, j0:j1, k0:k1, l0:l1) block of the full T4 tensor in t4_blk, it updates the
-// corresponding triangular-stored T4 buffer t4_tril using
+// corresponding triangular-stored T4 buffer t4_tri using
 //
-//     t4_tril = beta * t4_tril + alpha * t4_blk
+//     t4_tri = beta * t4_tri + alpha * t4_blk
 //
 // Only unique (i <= j <= k <= l) indices are processed. The mapping table `map`
 // provides the location of the triangular representative for each index triplet.
 //
 // Inputs:
-//     t4_tril                            : triangular-stored T4 amplitudes
+//     t4_tri                             : triangular-stored T4 amplitudes
 //     t4_blk                             : full T4 block [blk_i * blk_j * blk_k * nvir**3]
 //     map                                : maps (sym, i, j, k, l) -> triangular index
 //     [i0:i1), [j0:j1), [k0:k1), [l0:l1) : occupied index block ranges
 //     nocc, nvir                         : number of occupied / virtual orbitals
 //     blk_i, blk_j, blk_k, blk_l         : block dimensions for t4_blk
 //     alpha, beta                        : scaling factors for update
-void accumulate_t4_block2tril_c(double *restrict t4_tril,
-                                const double *restrict t4_blk,
-                                const int64_t *restrict map,
-                                int64_t i0, int64_t i1,
-                                int64_t j0, int64_t j1,
-                                int64_t k0, int64_t k1,
-                                int64_t l0, int64_t l1,
-                                int64_t nocc, int64_t nvir,
-                                int64_t blk_i, int64_t blk_j, int64_t blk_k, int64_t blk_l,
-                                double alpha, double beta)
+void accumulate_t4_block2tri_(double *restrict t4_tri,
+                              const double *restrict t4_blk,
+                              const int64_t *restrict map,
+                              int64_t i0, int64_t i1,
+                              int64_t j0, int64_t j1,
+                              int64_t k0, int64_t k1,
+                              int64_t l0, int64_t l1,
+                              int64_t nocc, int64_t nvir,
+                              int64_t blk_i, int64_t blk_j, int64_t blk_k, int64_t blk_l,
+                              double alpha, double beta)
 {
 #define MAP(sym, w, x, y, z) map[((((sym) * nocc + (w)) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 
@@ -1423,7 +1424,7 @@ void accumulate_t4_block2tril_c(double *restrict t4_tril,
                         continue;
 
                     int64_t p = MAP(0, i, j, k, l);
-                    int64_t tril_base = p * nvir * nvir * nvir * nvir;
+                    int64_t tri_base = p * nvir * nvir * nvir * nvir;
 
                     int64_t loc_i = i - i0;
                     int64_t loc_j = j - j0;
@@ -1440,7 +1441,7 @@ void accumulate_t4_block2tril_c(double *restrict t4_tril,
                                 for (int64_t d = 0; d < nvir; ++d)
                                 {
                                     int64_t idx = (((a * nvir + b) * nvir + c) * nvir + d);
-                                    t4_tril[tril_base + idx] = beta * t4_tril[tril_base + idx] + alpha * t4_blk[blk_base + idx];
+                                    t4_tri[tri_base + idx] = beta * t4_tri[tri_base + idx] + alpha * t4_blk[blk_base + idx];
                                 }
                             }
                         }

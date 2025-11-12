@@ -14,6 +14,7 @@
 
  *
  * Author: Yu Jin <yjin@flatironinstitute.org>
+ *         Huanchen Zhai <hczhai.ok@gmail.com>
  */
 
 #include <stdio.h>
@@ -43,7 +44,7 @@ const double sign2[2] = {1.0, -1.0};
 //     t3_full[i0:i1, j0:j1, k0:k1, a0:a1, b0:b1, c0:c1]
 //
 // Input
-//   t3_tril                   : triangular-stored T3 (alpha, alpha, alpha) amplitudes
+//   t3_tri                    : triangular-stored T3 (alpha, alpha, alpha) amplitudes
 //   t3_blk                    : output buffer of size [blk_i * blk_j * blk_k * blk_a * blk_b * blk_c]
 //   map_o                     : mapping (sym_o, i, j, k) -> triangular occupied index
 //   mask_o                    : triangular mask for occupied indices (i,j,k)
@@ -54,21 +55,21 @@ const double sign2[2] = {1.0, -1.0};
 //   nocc, nvir                : number of occupied / virtual orbitals
 //   blk_i, blk_j, blk_k       : block sizes for occupied orbitals
 //   blk_a, blk_b, blk_c       : block sizes for virtual orbitals
-void unpack_t3_aaa_tril2block_c(const double *restrict t3_tril,
-                                double *restrict t3_blk,
-                                const int64_t *restrict map_o,
-                                const bool *restrict mask_o,
-                                const int64_t *restrict map_v,
-                                const bool *restrict mask_v,
-                                int64_t i0, int64_t i1,
-                                int64_t j0, int64_t j1,
-                                int64_t k0, int64_t k1,
-                                int64_t a0, int64_t a1,
-                                int64_t b0, int64_t b1,
-                                int64_t c0, int64_t c1,
-                                int64_t nocc, int64_t nvir,
-                                int64_t blk_i, int64_t blk_j, int64_t blk_k,
-                                int64_t blk_a, int64_t blk_b, int64_t blk_c)
+void unpack_t3_aaa_tri2block_(const double *restrict t3_tri,
+                               double *restrict t3_blk,
+                               const int64_t *restrict map_o,
+                               const bool *restrict mask_o,
+                               const int64_t *restrict map_v,
+                               const bool *restrict mask_v,
+                               int64_t i0, int64_t i1,
+                               int64_t j0, int64_t j1,
+                               int64_t k0, int64_t k1,
+                               int64_t a0, int64_t a1,
+                               int64_t b0, int64_t b1,
+                               int64_t c0, int64_t c1,
+                               int64_t nocc, int64_t nvir,
+                               int64_t blk_i, int64_t blk_j, int64_t blk_k,
+                               int64_t blk_a, int64_t blk_b, int64_t blk_c)
 {
 #define MAP_O(sym, x, y, z) map_o[(((sym) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 #define MASK_O(sym, x, y, z) mask_o[(((sym) * nocc + (x)) * nocc + (y)) * nocc + (z)]
@@ -120,7 +121,7 @@ void unpack_t3_aaa_tril2block_c(const double *restrict t3_tril,
                                     int64_t src_idx = o_idx * no3 + v_idx;
                                     int64_t dest_idx = ((((loc_i * blk_j + loc_j) * blk_k + loc_k) * blk_a + loc_a) * blk_b + loc_b) * blk_c + loc_c;
 
-                                    t3_blk[dest_idx] = t3_tril[src_idx] * sign_xy;
+                                    t3_blk[dest_idx] = t3_tri[src_idx] * sign_xy;
                                 }
                             }
                         }
@@ -140,10 +141,10 @@ void unpack_t3_aaa_tril2block_c(const double *restrict t3_tril,
 // This routine takes a contiguous (i, j, k, a, b, c) block of the T3 (alpha, alpha, alpha) amplitudes
 // and accumulates the contribution into the triangularly-stored T3 (alpha, alpha, alpha) representation:
 //
-//     t3_tril = beta * t3_tril + alpha * t3_blk
+//     t3_tri = beta * t3_tri + alpha * t3_blk
 //
 // Input
-//   t3_tril                   : triangular-stored T3 (alpha, alpha, alpha) amplitudes
+//   t3_tri                    : triangular-stored T3 (alpha, alpha, alpha) amplitudes
 //   t3_blk                    : full T3 block [blk_i * blk_j * blk_k * blk_a * blk_b * blk_c]
 //   map_o                     : mapping (sym_o, i, j, k) -> triangular occupied index
 //   map_v                     : mapping (sym_v, a, b, c) -> triangular virtual index
@@ -153,20 +154,20 @@ void unpack_t3_aaa_tril2block_c(const double *restrict t3_tril,
 //   blk_i, blk_j, blk_k       : block size of occupied orbitals
 //   blk_a, blk_b, blk_c       : block size of virtual orbitals
 //   alpha, beta               : scaling factors for update
-void accumulate_t3_aaa_block2tril_c(double *restrict t3_tril,
-                                    const double *restrict t3_blk,
-                                    const int64_t *restrict map_o,
-                                    const int64_t *restrict map_v,
-                                    int64_t i0, int64_t i1,
-                                    int64_t j0, int64_t j1,
-                                    int64_t k0, int64_t k1,
-                                    int64_t a0, int64_t a1,
-                                    int64_t b0, int64_t b1,
-                                    int64_t c0, int64_t c1,
-                                    int64_t nocc, int64_t nvir,
-                                    int64_t blk_i, int64_t blk_j, int64_t blk_k,
-                                    int64_t blk_a, int64_t blk_b, int64_t blk_c,
-                                    double alpha, double beta)
+void accumulate_t3_aaa_block2tri_(double *restrict t3_tri,
+                                   const double *restrict t3_blk,
+                                   const int64_t *restrict map_o,
+                                   const int64_t *restrict map_v,
+                                   int64_t i0, int64_t i1,
+                                   int64_t j0, int64_t j1,
+                                   int64_t k0, int64_t k1,
+                                   int64_t a0, int64_t a1,
+                                   int64_t b0, int64_t b1,
+                                   int64_t c0, int64_t c1,
+                                   int64_t nocc, int64_t nvir,
+                                   int64_t blk_i, int64_t blk_j, int64_t blk_k,
+                                   int64_t blk_a, int64_t blk_b, int64_t blk_c,
+                                   double alpha, double beta)
 {
 #define MAP_O(sym, x, y, z) map_o[(((sym) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 #define MAP_V(sym, x, y, z) map_v[(((sym) * nvir + (x)) * nvir + (y)) * nvir + (z)]
@@ -209,10 +210,10 @@ void accumulate_t3_aaa_block2tril_c(double *restrict t3_tril,
                                 int64_t loc_b = b - b0;
                                 int64_t loc_c = c - c0;
 
-                                int64_t tril_idx = o_idx * no3 + v_idx;
+                                int64_t tri_idx = o_idx * no3 + v_idx;
                                 int64_t blk_idx = ((((loc_i * blk_j + loc_j) * blk_k + loc_k) * blk_a + loc_a) * blk_b + loc_b) * blk_c + loc_c;
 
-                                t3_tril[tril_idx] = alpha * t3_blk[blk_idx];
+                                t3_tri[tri_idx] = alpha * t3_blk[blk_idx];
                             }
                         }
                     }
@@ -233,10 +234,10 @@ void accumulate_t3_aaa_block2tril_c(double *restrict t3_tril,
                                 int64_t loc_b = b - b0;
                                 int64_t loc_c = c - c0;
 
-                                int64_t tril_idx = o_idx * no3 + v_idx;
+                                int64_t tri_idx = o_idx * no3 + v_idx;
                                 int64_t blk_idx = ((((loc_i * blk_j + loc_j) * blk_k + loc_k) * blk_a + loc_a) * blk_b + loc_b) * blk_c + loc_c;
 
-                                t3_tril[tril_idx] = beta * t3_tril[tril_idx] + alpha * t3_blk[blk_idx];
+                                t3_tri[tri_idx] = beta * t3_tri[tri_idx] + alpha * t3_blk[blk_idx];
                             }
                         }
                     }
@@ -261,7 +262,7 @@ void accumulate_t3_aaa_block2tril_c(double *restrict t3_tril,
 //     t3_full[i0:i1, j0:j1, a0:a1, b0:b1, k0:k1, c0:c1]
 //
 // Input
-//   t3_tril                    : triangular-stored T3 (alpha, alpha, beta) amplitudes
+//   t3_tri                     : triangular-stored T3 (alpha, alpha, beta) amplitudes
 //   t3_blk                     : output buffer [blk_i * blk_j * blk_a * blk_b * dim4 * dim5]
 //   map_o                      : mapping (sym_o, i, j) -> triangular occupied index
 //   mask_o                     : triangular mask for occupied indices (i, j)
@@ -273,22 +274,22 @@ void accumulate_t3_aaa_block2tril_c(double *restrict t3_tril,
 //   nocc, nvir                 : number of occupied / virtual orbitals
 //   dim4, dim5                 : extents for the beta indices (k and c)
 //   blk_i, blk_j, blk_a, blk_b : block sizes for alpha occupied and virtual orbitals
-void unpack_t3_aab_tril2block_c(const double *restrict t3_tril,
-                                double *restrict t3_blk,
-                                const int64_t *restrict map_o,
-                                const bool *restrict mask_o,
-                                const int64_t *restrict map_v,
-                                const bool *restrict mask_v,
-                                int64_t i0, int64_t i1,
-                                int64_t j0, int64_t j1,
-                                int64_t a0, int64_t a1,
-                                int64_t b0, int64_t b1,
-                                int64_t k0, int64_t k1,
-                                int64_t c0, int64_t c1,
-                                int64_t nocc, int64_t nvir,
-                                int64_t dim4, int64_t dim5,
-                                int64_t blk_i, int64_t blk_j,
-                                int64_t blk_a, int64_t blk_b)
+void unpack_t3_aab_tri2block_(const double *restrict t3_tri,
+                               double *restrict t3_blk,
+                               const int64_t *restrict map_o,
+                               const bool *restrict mask_o,
+                               const int64_t *restrict map_v,
+                               const bool *restrict mask_v,
+                               int64_t i0, int64_t i1,
+                               int64_t j0, int64_t j1,
+                               int64_t a0, int64_t a1,
+                               int64_t b0, int64_t b1,
+                               int64_t k0, int64_t k1,
+                               int64_t c0, int64_t c1,
+                               int64_t nocc, int64_t nvir,
+                               int64_t dim4, int64_t dim5,
+                               int64_t blk_i, int64_t blk_j,
+                               int64_t blk_a, int64_t blk_b)
 {
 #define MAP_O(sym, x, y) map_o[((sym) * nocc + (x)) * nocc + (y)]
 #define MASK_O(sym, x, y) mask_o[((sym) * nocc + (x)) * nocc + (y)]
@@ -338,7 +339,7 @@ void unpack_t3_aab_tril2block_c(const double *restrict t3_tril,
                                     int64_t src_idx = ((o_idx * no2 + v_idx) * dim4 + d4) * dim5 + d5;
                                     int64_t dest_idx = ((((loc_i * blk_j + loc_j) * blk_a + loc_a) * blk_b + loc_b) * dim4 + d4) * dim5 + d5;
 
-                                    t3_blk[dest_idx] = t3_tril[src_idx] * sign_xy;
+                                    t3_blk[dest_idx] = t3_tri[src_idx] * sign_xy;
                                 }
                             }
                         }
@@ -359,10 +360,10 @@ void unpack_t3_aab_tril2block_c(const double *restrict t3_tril,
 //     t3[i0:i1, j0:j1, a0:a1, b0:b1, k0:k1, c0:c1]
 // and accumulates it back into the compressed triangular storage
 //
-//     t3_tril = beta * t3_tril + alpha * t3_blk
+//     t3_tri = beta * t3_tri + alpha * t3_blk
 //
 // Input
-//   t3_tril            : triangular T3 (alpha alpha beta) amplitudes
+//   t3_tri             : triangular T3 (alpha alpha beta) amplitudes
 //   t3_blk             : block buffer containing T3 (alpha, alpha, beta) amplitudes
 //   map_o              : mapping (sym_o, i, j) -> triangular occupied index
 //   map_v              : mapping (sym_v, a, b) -> triangular virtual index
@@ -374,21 +375,21 @@ void unpack_t3_aab_tril2block_c(const double *restrict t3_tril,
 //   blk_i, blk_j       : block sizes for (i, j)
 //   blk_a, blk_b       : block sizes for (a, b)
 //   alpha, beta        : accumulation coefficients
-void accumulate_t3_aab_block2tril_c(double *restrict t3_tril,
-                                    const double *restrict t3_blk,
-                                    const int64_t *restrict map_o,
-                                    const int64_t *restrict map_v,
-                                    int64_t i0, int64_t i1,
-                                    int64_t j0, int64_t j1,
-                                    int64_t a0, int64_t a1,
-                                    int64_t b0, int64_t b1,
-                                    int64_t k0, int64_t k1,
-                                    int64_t c0, int64_t c1,
-                                    int64_t nocc, int64_t nvir,
-                                    int64_t dim4, int64_t dim5,
-                                    int64_t blk_i, int64_t blk_j,
-                                    int64_t blk_a, int64_t blk_b,
-                                    double alpha, double beta)
+void accumulate_t3_aab_block2tri_(double *restrict t3_tri,
+                                   const double *restrict t3_blk,
+                                   const int64_t *restrict map_o,
+                                   const int64_t *restrict map_v,
+                                   int64_t i0, int64_t i1,
+                                   int64_t j0, int64_t j1,
+                                   int64_t a0, int64_t a1,
+                                   int64_t b0, int64_t b1,
+                                   int64_t k0, int64_t k1,
+                                   int64_t c0, int64_t c1,
+                                   int64_t nocc, int64_t nvir,
+                                   int64_t dim4, int64_t dim5,
+                                   int64_t blk_i, int64_t blk_j,
+                                   int64_t blk_a, int64_t blk_b,
+                                   double alpha, double beta)
 {
 #define MAP_O(sym, x, y) map_o[((sym) * nocc + (x)) * nocc + (y)]
 #define MAP_V(sym, x, y) map_v[((sym) * nvir + (x)) * nvir + (y)]
@@ -429,10 +430,10 @@ void accumulate_t3_aab_block2tril_c(double *restrict t3_tril,
                         {
                             for (int64_t d5 = c0; d5 < c1; ++d5)
                             {
-                                int64_t tril_idx = ((o_idx * no2 + v_idx) * dim4 + d4) * dim5 + d5;
+                                int64_t tri_idx = ((o_idx * no2 + v_idx) * dim4 + d4) * dim5 + d5;
                                 int64_t blk_idx = ((((loc_i * blk_j + loc_j) * blk_a + loc_a) * blk_b + loc_b) * dim4 + d4) * dim5 + d5;
 
-                                t3_tril[tril_idx] = alpha * t3_blk[blk_idx];
+                                t3_tri[tri_idx] = alpha * t3_blk[blk_idx];
                             }
                         }
                     }
@@ -442,10 +443,10 @@ void accumulate_t3_aab_block2tril_c(double *restrict t3_tril,
                         {
                             for (int64_t d5 = c0; d5 < c1; ++d5)
                             {
-                                int64_t tril_idx = ((o_idx * no2 + v_idx) * dim4 + d4) * dim5 + d5;
+                                int64_t tri_idx = ((o_idx * no2 + v_idx) * dim4 + d4) * dim5 + d5;
                                 int64_t blk_idx = ((((loc_i * blk_j + loc_j) * blk_a + loc_a) * blk_b + loc_b) * dim4 + d4) * dim5 + d5;
 
-                                t3_tril[tril_idx] = beta * t3_tril[tril_idx] + alpha * t3_blk[blk_idx];
+                                t3_tri[tri_idx] = beta * t3_tri[tri_idx] + alpha * t3_blk[blk_idx];
                             }
                         }
                     }

@@ -238,18 +238,18 @@ def BCCD(mf, frozen=None, u=None, conv_tol_normu=1e-5, max_cycle=20, diis=True,
     return mycc.view(BCCD)
 
 
-def CCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
+def CCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, compact_tamps=True):
     if mf.istype('UHF'):
-        return UCCSDT(mf, frozen, mo_coeff, mo_occ, high_memory=high_memory)
+        return UCCSDT(mf, frozen, mo_coeff, mo_occ, compact_tamps=compact_tamps)
     elif mf.istype('GHF'):
         raise NotImplementedError("GCCSDT not implemented")
     else:
-        return RCCSDT(mf, frozen, mo_coeff, mo_occ, high_memory=high_memory)
+        return RCCSDT(mf, frozen, mo_coeff, mo_occ, compact_tamps=compact_tamps)
 
 scf.hf.SCF.CCSDT = CCSDT
 
 
-def RCCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
+def RCCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, compact_tamps=True):
     import numpy
     from pyscf import lib
     from pyscf.df.df_jk import _DFHF
@@ -269,23 +269,23 @@ def RCCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
     if isinstance(mf, _DFHF) and mf.with_df:
         lib.logger.warn(mf, 'RCCSDT does not support density fitting. The ERIs have been rebuilt in-core, '
                             'and the RCCSDT calculation will proceed without density fitting.')
-        if high_memory:
-            return rccsdt_highm.RCCSDT(mf, frozen, mo_coeff, mo_occ)
-        else:
+        if compact_tamps:
             return rccsdt.RCCSDT(mf, frozen, mo_coeff, mo_occ)
+        else:
+            return rccsdt_highm.RCCSDT(mf, frozen, mo_coeff, mo_occ)
 
     elif numpy.iscomplexobj(mo_coeff) or numpy.iscomplexobj(mf.mo_coeff):
         raise NotImplementedError('RCCSDT does not support complex numbers')
 
     else:
-        if high_memory:
-            return rccsdt_highm.RCCSDT(mf, frozen, mo_coeff, mo_occ)
-        else:
+        if compact_tamps:
             return rccsdt.RCCSDT(mf, frozen, mo_coeff, mo_occ)
+        else:
+            return rccsdt_highm.RCCSDT(mf, frozen, mo_coeff, mo_occ)
 RCCSDT.__doc__ = rccsdt.RCCSDT.__doc__
 
 
-def UCCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
+def UCCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, compact_tamps=True):
     from pyscf import lib
     from pyscf.df.df_jk import _DFHF
 
@@ -296,30 +296,30 @@ def UCCSDT(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
     if isinstance(mf, _DFHF) and mf.with_df:
         lib.logger.warn(mf, 'UCCSDT does not support density fitting. The ERIs have been rebuilt in-core, '
                             'and the UCCSDT calculation will proceed without density fitting.')
-        if high_memory:
-            return uccsdt_highm.UCCSDT(mf, frozen, mo_coeff, mo_occ)
-        else:
+        if compact_tamps:
             return uccsdt.UCCSDT(mf, frozen, mo_coeff, mo_occ)
+        else:
+            return uccsdt_highm.UCCSDT(mf, frozen, mo_coeff, mo_occ)
     else:
-        if high_memory:
-            return uccsdt_highm.UCCSDT(mf, frozen, mo_coeff, mo_occ)
-        else:
+        if compact_tamps:
             return uccsdt.UCCSDT(mf, frozen, mo_coeff, mo_occ)
+        else:
+            return uccsdt_highm.UCCSDT(mf, frozen, mo_coeff, mo_occ)
 UCCSDT.__doc__ = uccsdt.UCCSDT.__doc__
 
 
-def CCSDTQ(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
+def CCSDTQ(mf, frozen=None, mo_coeff=None, mo_occ=None, compact_tamps=True):
     if mf.istype('UHF'):
-        return NotImplementedError("UCCSDTQ not implemented")
+        raise NotImplementedError("UCCSDTQ not implemented")
     elif mf.istype('GHF'):
         raise NotImplementedError("GCCSDTQ not implemented")
     else:
-        return RCCSDTQ(mf, frozen, mo_coeff, mo_occ, high_memory=high_memory)
+        return RCCSDTQ(mf, frozen, mo_coeff, mo_occ, compact_tamps=compact_tamps)
 
 scf.hf.SCF.CCSDTQ = CCSDTQ
 
 
-def RCCSDTQ(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
+def RCCSDTQ(mf, frozen=None, mo_coeff=None, mo_occ=None, compact_tamps=True):
     import numpy
     from pyscf import lib
     from pyscf.df.df_jk import _DFHF
@@ -338,17 +338,17 @@ def RCCSDTQ(mf, frozen=None, mo_coeff=None, mo_occ=None, high_memory=False):
     if isinstance(mf, _DFHF) and mf.with_df:
         lib.logger.warn(mf, 'RCCSDTQ does not support density fitting. The ERIs have been rebuilt in-core, '
                             'and the RCCSDTQ calculation will proceed without density fitting.')
-        if high_memory:
-            return rccsdtq_highm.RCCSDTQ(mf, frozen, mo_coeff, mo_occ)
-        else:
+        if compact_tamps:
             return rccsdtq.RCCSDTQ(mf, frozen, mo_coeff, mo_occ)
+        else:
+            return rccsdtq_highm.RCCSDTQ(mf, frozen, mo_coeff, mo_occ)
 
     elif numpy.iscomplexobj(mo_coeff) or numpy.iscomplexobj(mf.mo_coeff):
         raise NotImplementedError('RCCSDTQ does not support complex numbers')
 
     else:
-        if high_memory:
-            return rccsdtq_highm.RCCSDTQ(mf, frozen, mo_coeff, mo_occ)
-        else:
+        if compact_tamps:
             return rccsdtq.RCCSDTQ(mf, frozen, mo_coeff, mo_occ)
+        else:
+            return rccsdtq_highm.RCCSDTQ(mf, frozen, mo_coeff, mo_occ)
 RCCSDTQ.__doc__ = rccsdtq.RCCSDTQ.__doc__
