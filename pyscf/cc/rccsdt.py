@@ -344,7 +344,20 @@ def symmetrize_tamps_tri_(r, nocc):
             continue
         perm = [0] + list(range(1, order + 1))
         perm[p + 1], perm[p + 2] = perm[p + 2], perm[p + 1]
-        r[equal] = 0.5 * (r[equal] + r[np.ix_(equal)].transpose(perm))
+        if len(equal) >= 100:
+            blksize = (len(equal) + 1) // 4
+            blksize = max(1, blksize)
+        else:
+            blksize = len(equal)
+        for i in range(0, len(equal), blksize):
+            i_end = min(i + blksize, len(equal))
+            idx_i = equal[i:i_end]
+            r_block = r[idx_i].copy()
+            r_pair  = r[idx_i].transpose(perm)
+            r_block += r_pair
+            r_block *= 0.5
+            r[idx_i] = r_block
+            r_block, r_pair = None, None
     return r
 
 def purify_tamps_tri_(r, nocc):
@@ -1227,17 +1240,35 @@ def memory_estimate_log_rccsdt(mycc):
         t3_memory = nocc**3 * nvir**3 * 8
     log.info('    T3 memory               %8s', format_size(t3_memory))
     log.info('    R3 memory               %8s', format_size(t3_memory))
+
     if not mycc.do_tri_max_t:
-        log.info('    Symmetrized T3 memory   %8s', format_size(t3_memory))
-        if mycc.einsum_backend in ['numpy', 'pyscf']:
-            log.info("    T3 einsum buffer        %8s", format_size(t3_memory))
+        symm_t3_memory = t3_memory
+        log.info('    Symmetrized T3 memory   %8s', format_size(symm_t3_memory))
+    if mycc.do_tri_max_t:
+        if nocc * (nocc + 1) // 2 >= 100:
+            factor = 4
+        else:
+            factor = 1
+        symm_t3_memory = nocc * (nocc + 1) // 2 * nvir**3 * 8 * 2 / factor
+        log.info('    Symmetrized T3 memory   %8s', format_size(symm_t3_memory))
+
     eris_memory = nmo**4 * 8
     log.info('    ERIs memory             %8s', format_size(eris_memory))
     log.info('    T1-ERIs memory          %8s', format_size(eris_memory))
     log.info('    Intermediates memory    %8s', format_size(eris_memory))
+
     if mycc.do_tri_max_t:
         blk_memory = mycc.blksize_oovv**2 * nocc * nvir**3 * 8
         log.info("    Block workspace         %8s", format_size(blk_memory))
+
+    if mycc.einsum_backend in ['numpy', 'pyscf']:
+        if mycc.do_tri_max_t:
+            einsum_memory = blk_memory
+            log.info("    T3 einsum buffer        %8s", format_size(einsum_memory))
+        else:
+            einsum_memory = t3_memory
+            log.info("    T3 einsum buffer        %8s", format_size(einsum_memory))
+
     if mycc.incore_complete:
         if mycc.do_diis_max_t:
             diis_memory = nocc * (nocc + 1) * (nocc + 2) // 6 * nvir**3 * 8 * mycc.diis_space * 2
@@ -1246,12 +1277,13 @@ def memory_estimate_log_rccsdt(mycc):
         log.info('    DIIS memory             %8s', format_size(diis_memory))
     else:
         diis_memory = 0.0
+
+    total_memory = 2 * t3_memory + symm_t3_memory + 3 * eris_memory + diis_memory
     if mycc.do_tri_max_t:
-        total_memory = 2 * t3_memory + 3 * eris_memory + diis_memory + blk_memory
-    else:
-        total_memory = 3 * t3_memory + 3 * eris_memory + diis_memory
+        total_memory += blk_memory
     if mycc.einsum_backend in ['numpy', 'pyscf']:
-        total_memory += t3_memory
+        total_memory += einsum_memory
+
     log.info('Total estimated memory      %8s', format_size(total_memory))
     max_memory = mycc.max_memory - lib.current_memory()[0]
     if (total_memory / 1024**2) > max_memory:
@@ -1426,10 +1458,10 @@ class RCCSDT(ccsd.CCSDBase):
             if self.blksize > (nocc + 1) // 2:
                 logger.warn(self, 'A large `blksize` is being used. If sufficient memory is available for '
                                     'the Block workspace, consider using `pyscf.cc.rccsdt.RCCSDT` instead.')
-            if self.blksize_oovv >= (nocc + 1) // 2:
+            if self.blksize_oovv > (nocc + 1) // 2:
                 logger.warn(self, 'A large `blksize_oovv` is being used. If sufficient memory is available for '
                                     'the Block workspace, consider using `pyscf.cc.rccsdt.RCCSDT` instead.')
-            if self.blksize_oooo >= (nocc + 1) // 2:
+            if self.blksize_oooo > (nocc + 1) // 2:
                 logger.warn(self, 'A large `blksize_oooo` is being used. If sufficient memory is available for '
                                     'the Block workspace, consider using `pyscf.cc.rccsdt.RCCSDT` instead.')
 

@@ -883,18 +883,36 @@ def memory_estimate_log_rccsdtq(mycc):
         t4_memory = nocc**4 * nvir**4 * 8
     log.info('    T4 memory               %8s', format_size(t4_memory))
     log.info('    R4 memory               %8s', format_size(t4_memory))
+
     if not mycc.do_tri_max_t:
-        log.info('    Symmetrized T4 memory   %8s', format_size(t4_memory))
-        if mycc.einsum_backend in ['numpy', 'pyscf']:
-            log.info("    T4 einsum buffer        %8s", format_size(t4_memory))
+        symm_t4_memory = t4_memory
+        log.info('    Symmetrized T4 memory   %8s', format_size(symm_t4_memory))
+    if mycc.do_tri_max_t:
+        if nocc * (nocc + 1) * (nocc + 2) // 6 >= 100:
+            factor = 4
+        else:
+            factor = 1
+        symm_t4_memory = nocc * (nocc + 1) * (nocc + 2) // 6 * nvir**4 * 8 * 2 / factor
+        log.info('    Symmetrized T4 memory   %8s', format_size(symm_t4_memory))
+
     eris_memory = nmo**4 * 8
     log.info('    ERIs memory             %8s', format_size(eris_memory))
     log.info('    T1-ERIs memory          %8s', format_size(eris_memory))
     intermediates_memory = nocc**2 * nvir**4 * 8 * 2
     log.info('    Intermediates memory    %8s', format_size(intermediates_memory))
+
     if mycc.do_tri_max_t:
         blk_memory = mycc.blksize**4 * nvir**4 * 8 * 2
         log.info("    Block workspace         %8s", format_size(blk_memory))
+
+    if mycc.einsum_backend in ['numpy', 'pyscf']:
+        if mycc.do_tri_max_t:
+            einsum_memory = blk_memory
+            log.info("    T4 einsum buffer        %8s", format_size(einsum_memory))
+        else:
+            einsum_memory = t4_memory
+            log.info("    T4 einsum buffer        %8s", format_size(einsum_memory))
+
     if mycc.incore_complete:
         if mycc.do_diis_max_t:
             diis_memory = nocc * (nocc + 1) * (nocc + 2) * (nocc + 3) // 24 * nvir**4 * 8  * mycc.diis_space * 2
@@ -903,13 +921,14 @@ def memory_estimate_log_rccsdtq(mycc):
         log.info('    DIIS memory             %8s', format_size(diis_memory))
     else:
         diis_memory = 0.0
+
+    total_memory = 2 * t4_memory + symm_t4_memory + 3 * eris_memory + diis_memory
     if mycc.do_tri_max_t:
-        total_memory = 2 * t4_memory + 3 * eris_memory + diis_memory + blk_memory
-    else:
-        total_memory = 3 * t4_memory + 3 * eris_memory + diis_memory
+        total_memory += blk_memory
     if mycc.einsum_backend in ['numpy', 'pyscf']:
-        total_memory += t4_memory
-    log.info('Total estimated memory  %8s', format_size(total_memory))
+        total_memory += einsum_memory
+
+    log.info('Total estimated memory      %8s', format_size(total_memory))
     max_memory = mycc.max_memory - lib.current_memory()[0]
     if (total_memory / 1024**2) > max_memory:
         logger.warn(mycc, 'Estimated memory usage exceeds the allowed limit for %s', mycc.__class__.__name__)
