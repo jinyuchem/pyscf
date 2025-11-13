@@ -37,17 +37,17 @@ from pyscf.mp.ump2 import get_nocc, get_nmo, get_frozen_mask
 from pyscf.cc import uccsdt
 from pyscf.cc.rccsdt import _einsum, run_diis, _finalize
 from pyscf.cc.uccsdt import (update_t1_fock_eris_uhf, intermediates_t1t2_uhf, compute_r1r2_uhf,
-                            antisymmetrize_r2_uhf_, r1r2_divide_e_uhf_, intermediates_t3_uhf, _PhysicistsERIs)
+                            antisymmetrize_r2_uhf_, r1r2_divide_e_uhf_, intermediates_t3_uhf, _PhysicistsERIs, _IMDS)
 from pyscf import __config__
 
 
-def r1r2_add_t3_uhf_(mycc, t1_fock, t1_eris, t3, r1, r2):
+def r1r2_add_t3_uhf_(mycc, imds, r1, r2, t3):
     '''Add the T3 contributions to r1 and r2. T3 amplitudes are stored in full form.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocca, noccb = mycc.nocc
-    t1_focka, t1_fockb = t1_fock
-    t1_erisaa, t1_erisab, t1_erisbb = t1_eris
+    t1_focka, t1_fockb = imds.t1_fock
+    t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
     t3aaa, t3aab, t3bba, t3bbb = t3
 
     (r1a, r1b), (r2aa, r2ab, r2bb) = r1, r2
@@ -86,13 +86,17 @@ def r1r2_add_t3_uhf_(mycc, t1_fock, t1_eris, t3, r1, r2):
     einsum("nmej,imabne->ijab", t1_erisab[:nocca, :noccb, nocca:, :noccb], t3bba, out=r2bb, alpha=-0.5, beta=1.0)
     return [r1a, r1b], [r2aa, r2ab, r2bb]
 
-def intermediates_t3_add_t3_uhf_(mycc, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvvo, W_vVvO, W_VVVO, W_vVoV, t1_eris, t3):
+def intermediates_t3_add_t3_uhf(mycc, imds, t3):
     '''Add the T3-dependent contributions to the T3 intermediates, with T3 stored in full form.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocca, noccb = mycc.nocc
-    t1_erisaa, t1_erisab, t1_erisbb = t1_eris
+    t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
     t3aaa, t3aab, t3bba, t3bbb = t3
+
+    W_ovoo, W_oVoO, W_OVOO = imds.W_ovoo, imds.W_oVoO, imds.W_OVOO
+    W_vvvo, W_vVvO, W_VVVO = imds.W_vvvo, imds.W_vVvO, imds.W_VVVO
+    W_vOoO, W_vVoV = imds.W_vOoO, imds.W_vVoV
 
     oaoavava = (slice(None, nocca), slice(None, nocca), slice(nocca, None), slice(nocca, None))
     oaobvavb = (slice(None, nocca), slice(None, noccb), slice(nocca, None), slice(noccb, None))
@@ -113,11 +117,9 @@ def intermediates_t3_add_t3_uhf_(mycc, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvvo, W
     einsum('lmde,mlecjb->bcjd', t1_erisbb[obobvbvb], t3bba, out=W_vVoV, alpha=-0.5, beta=1.0)
     einsum('mled,jmaekd->aljk', t1_erisab[oaobvavb], t3aab, out=W_vOoO, alpha=1.0, beta=1.0)
     einsum('lmde,mkedja->aljk', t1_erisbb[obobvbvb], t3bba, out=W_vOoO, alpha=0.5, beta=1.0)
-    return W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvvo, W_vVvO, W_VVVO, W_vVoV,
+    return imds
 
-def compute_r3_uhf(mycc, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo, W_oVoO, W_OVOO, W_vOoO,
-                    W_oVoV, W_vOvO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vvvo, W_vVvO, W_VVVO,
-                    W_vvvv, W_vVvV, W_VVVV, t2, t3):
+def compute_r3_uhf(mycc, imds, t2, t3):
     '''Compute r3 with full T3 amplitudes; r3 is returned in full form as well.'''
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
@@ -126,6 +128,14 @@ def compute_r3_uhf(mycc, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo,
     einsum = functools.partial(_einsum, backend)
     t2aa, t2ab, t2bb = t2
     t3aaa, t3aab, t3bba, t3bbb = t3
+
+    F_oo, F_OO, F_vv, F_VV = imds.F_oo, imds.F_OO, imds.F_vv, imds.F_VV
+    W_oooo, W_oOoO, W_OOOO = imds.W_oooo, imds.W_oOoO, imds.W_OOOO
+    W_ovoo, W_oVoO, W_OVOO = imds.W_ovoo, imds.W_oVoO, imds.W_OVOO
+    W_vOoO, W_oVoV, W_vOvO, W_vVoV = imds.W_vOoO, imds.W_oVoV, imds.W_vOvO, imds.W_vVoV
+    W_voov, W_vOoV, W_VoOv, W_VOOV = imds.W_voov, imds.W_vOoV, imds.W_VoOv, imds.W_VOOV
+    W_vvvo, W_vVvO, W_VVVO = imds.W_vvvo, imds.W_vVvO, imds.W_VVVO
+    W_vvvv, W_vVvV, W_VVVV = imds.W_vvvv, imds.W_vVvV, imds.W_VVVV
 
     # aaa
     r3aaa = np.empty_like(t3aaa)
@@ -173,6 +183,7 @@ def compute_r3_uhf(mycc, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo,
     einsum("aldk,ijdblc->ijabkc", W_vOvO, t3aab, out=r3aab, alpha=-0.5, beta=1.0)
     einsum("clkd,ijlabd->ijabkc", W_VoOv, t3aaa, out=r3aab, alpha=0.25, beta=1.0)
     einsum("clkd,ijabld->ijabkc", W_VOOV, t3aab, out=r3aab, alpha=0.25, beta=1.0)
+    W_vvvo, W_ovoo, W_vvvv, W_oooo = (None,) * 4
     time1 = log.timer_debug1('t3: r3aab', *time1)
 
     # bba
@@ -197,6 +208,9 @@ def compute_r3_uhf(mycc, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo,
     einsum("lakd,ijdblc->ijabkc", W_oVoV, t3bba, out=r3bba, alpha=-0.5, beta=1.0)
     einsum("clkd,ijlabd->ijabkc", W_vOoV, t3bbb, out=r3bba, alpha=0.25, beta=1.0)
     einsum("clkd,ijabld->ijabkc", W_voov, t3bba, out=r3bba, alpha=0.25, beta=1.0)
+    F_oo, F_OO, F_vv, F_VV = (None,) * 4
+    (W_vVoV, W_vVvO, W_voov, W_vOoV, W_oVoO, W_vOoO, W_vVvV, W_oOoO, W_oVoV, W_vOvO, W_VoOv, W_VOOV,
+        W_VVVV, W_VVVO, W_OVOO, W_OOOO) = (None,) * 16
     time1 = log.timer_debug1('t3: r3bba', *time1)
     return [r3aaa, r3aab, r3bba, r3bbb]
 
@@ -250,16 +264,15 @@ def update_amps_uccsdt_(mycc, tamps, eris):
     t3aaa, t3aab, t3bba, t3bbb = t3
     mo_energy = eris.mo_energy[:]
 
+    imds = _IMDS()
+
     # t1 t2
-    t1_fock, t1_eris = update_t1_fock_eris_uhf(mycc, t1, eris)
+    update_t1_fock_eris_uhf(mycc, imds, t1, eris)
     time1 = log.timer_debug1('t1t2: update fock and eris', *time0)
-    (F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovvo, W_oVvO, W_OvVo, W_OVVO,
-        W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO) = intermediates_t1t2_uhf(mycc, t1_fock, t1_eris, t2)
+    intermediates_t1t2_uhf(mycc, imds, t2)
     time1 = log.timer_debug1('t1t2: update intermediates', *time1)
-    r1, r2 = compute_r1r2_uhf(mycc, t1_fock, t1_eris, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO,
-                                W_ovvo, W_oVvO, W_OvVo, W_OVVO, W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO, t2)
-    W_ovvo, W_oVvO, W_OvVo, W_OVVO, W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO = (None,) * 10
-    r1r2_add_t3_uhf_(mycc, t1_fock, t1_eris, t3, r1, r2)
+    r1, r2 = compute_r1r2_uhf(mycc, imds, t2)
+    r1r2_add_t3_uhf_(mycc, imds, r1, r2, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
     # antisymmetrize R2
     antisymmetrize_r2_uhf_(r2)
@@ -281,16 +294,12 @@ def update_amps_uccsdt_(mycc, tamps, eris):
     time0 = log.timer_debug1('t1t2 total', *time0)
 
     # t3
-    (W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_oVoV, W_vOvO, W_vvvo, W_vVvO, W_VVVO,
-        W_vVoV, W_vvvv, W_vVvV, W_VVVV) = intermediates_t3_uhf(mycc, t1_fock, t1_eris, t2)
-    intermediates_t3_add_t3_uhf_(mycc, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvvo, W_vVvO, W_VVVO, W_vVoV, t1_eris, t3)
-    t1_fock, t1_eris = None, None
+    intermediates_t3_uhf(mycc, imds, t2)
+    intermediates_t3_add_t3_uhf(mycc, imds, t3)
+    imds.t1_fock, imds.t1_eris = None, None
     time1 = log.timer_debug1('t3: update intermediates', *time0)
-    r3 = compute_r3_uhf(mycc, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo, W_oVoO, W_OVOO, W_vOoO,
-                        W_oVoV, W_vOvO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vvvo, W_vVvO, W_VVVO,
-                        W_vvvv, W_vVvV, W_VVVV, t2, t3)
-    (F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_oVoV, W_vOvO,
-        W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vvvo, W_vVvO, W_VVVO, W_vvvv, W_vVvV, W_VVVV) = (None,) * 24
+    r3 = compute_r3_uhf(mycc, imds, t2, t3)
+    imds = None
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # antisymmetrize r3
     antisymmetrize_r3_uhf_(r3)

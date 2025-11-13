@@ -38,7 +38,7 @@ from pyscf.cc.rccsdt import (_einsum, t3_spin_summation_inplace_, symmetrize_tam
                             update_t1_fock_eris, intermediates_t1t2, compute_r1r2, r1r2_divide_e_,
                             intermediates_t3, kernel, _PhysicistsERIs, format_size)
 from pyscf.cc.rccsdt_highm import (t3_spin_summation, t3_perm_symmetrize_inplace_, purify_tamps_, r1r2_add_t3_,
-                                    intermediates_t3_add_t3_, compute_r3, r3_divide_e_)
+                                    intermediates_t3_add_t3, compute_r3, r3_divide_e_)
 from pyscf import __config__
 
 
@@ -127,13 +127,15 @@ def _accumulate_t4_(mycc, t4, t4_blk, i0, i1, j0, j1, k0, k1, l0, l1,
                                 mycc.nmo - mycc.nocc, blksize0, blksize1, blksize2, blksize3, alpha=alpha, beta=beta)
     return t4
 
-def r2_add_t4_tri_(mycc, r2, t1_eris, t4):
+def r2_add_t4_tri_(mycc, imds, r2, t4):
     '''Add the T4 contributions to r2. T4 amplitudes are stored in triangular form.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize = mycc.blksize
+
+    t1_eris = imds.t1_eris
 
     t4_tmp = np.empty((blksize,) * 4 + (nvir,) * 4, dtype=np.float64)
     for m0, m1 in lib.prange(0, nocc, blksize):
@@ -151,13 +153,15 @@ def r2_add_t4_tri_(mycc, r2, t1_eris, t4):
     t4_tmp = None
     return r2
 
-def r3_add_t4_tri_(mycc, r3, t1_fock, t1_eris, t4):
+def r3_add_t4_tri_(mycc, imds, r3, t4):
     '''Add the T4 contributions to r3. T4 amplitudes are stored in triangular form.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize = mycc.blksize
+
+    t1_fock, t1_eris = imds.t1_fock, imds.t1_eris
 
     t4_tmp = np.empty((blksize,) * 4 + (nvir,) * 4, dtype=t4.dtype)
     for m0, m1 in lib.prange(0, nocc, blksize):
@@ -182,7 +186,7 @@ def r3_add_t4_tri_(mycc, r3, t1_fock, t1_eris, t4):
     t4_tmp = None
     return r3
 
-def intermediates_t4_tri_(mycc, W_vvvo, t1_fock, t1_eris, W_oooo, W_ovov, W_vvvv, t2, t3, t4):
+def intermediates_t4_tri(mycc, imds, t2, t3, t4):
     '''Intermediates for the T4 residual equation, with T4 amplitudes stored in triangular form.
     In place modification of W_vvvo.
     '''
@@ -191,6 +195,9 @@ def intermediates_t4_tri_(mycc, W_vvvo, t1_fock, t1_eris, W_oooo, W_ovov, W_vvvv
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize = mycc.blksize
+
+    t1_fock, t1_eris = imds.t1_fock, imds.t1_eris
+    W_vvvo, W_oooo, W_ovov, W_vvvv = imds.W_vvvo, imds.W_oooo, imds.W_ovov, imds.W_vvvv
 
     einsum('me,mjab->abej', t1_fock[:nocc, nocc:], t2, out=W_vvvo, alpha=-1.0, beta=1.0)
 
@@ -253,10 +260,11 @@ def intermediates_t4_tri_(mycc, W_vvvo, t1_fock, t1_eris, W_oooo, W_ovov, W_vvvv
     W_ovvvoo += W_ovvvoo.transpose(0, 2, 1, 3, 5, 4)
     W_vvoooo += W_vvoooo.transpose(1, 0, 2, 4, 3, 5)
     W_vvvvoo += W_vvvvoo.transpose(0, 2, 1, 3, 5, 4)
-    return W_vvvo, W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo
+    imds.W_ovvvoo, imds.W_ovvovo, imds.W_vooooo = W_ovvvoo, W_ovvovo, W_vooooo
+    imds.W_vvoooo, imds.W_vvvvoo = W_vvoooo, W_vvvvoo
+    return imds
 
-def compute_r4_tri(mycc, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_vvvv,
-                    W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo, t2, t3, t4):
+def compute_r4_tri(mycc, imds, t2, t3, t4):
     '''Compute r4 with triangular-stored T4 amplitudes; r4 is returned in triangular form as well.
     r4 will require a symmetry restoration step afterward.
     '''
@@ -267,6 +275,12 @@ def compute_r4_tri(mycc, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_v
     einsum = functools.partial(_einsum, backend)
     nocc, nmo, blksize = mycc.nocc, mycc.nmo, mycc.blksize
     nvir = nmo - nocc
+
+    F_oo, F_vv = imds.F_oo, imds.F_vv
+    W_oooo, W_ovvo, W_ovov = imds.W_oooo, imds.W_ovvo, imds.W_ovov
+    W_vvvo, W_vooo, W_vvvv = imds.W_vvvo, imds.W_vooo, imds.W_vvvv
+    W_ovvvoo, W_ovvovo, W_vooooo = imds.W_ovvvoo, imds.W_ovvovo, imds.W_vooooo
+    W_vvoooo, W_vvvvoo = imds.W_vvoooo, imds.W_vvvvoo
 
     c_t3 = np.empty_like(t3)
     t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
@@ -581,6 +595,8 @@ def compute_r4_tri(mycc, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_v
     t4_tmp = None
     r4_tmp = None
     c_t3 = None
+    F_vv, W_vvvo, W_vooo, W_vvvv, W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo = (None,) * 9
+
     time1 = log.timer_debug1('t4: P0, P1, P9 - P14, P2, P8', *time1)
 
     time2 = logger.process_clock(), logger.perf_counter()
@@ -691,6 +707,7 @@ def compute_r4_tri(mycc, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_v
         time2 = log.timer_debug1('t4: iter: P3, P4, P5, P6 [%3d, %3d]:'%(l0, l1), *time2)
     t4_tmp = None
     r4_tmp = None
+    F_oo, W_ovvo, W_ovov = None, None, None
     time1 = log.timer_debug1('t4: P3, P4, P5, P6', *time1)
 
     time2 = logger.process_clock(), logger.perf_counter()
@@ -735,6 +752,7 @@ def compute_r4_tri(mycc, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_v
         time2 = log.timer_debug1('t4: iter: P7 [%3d, %3d]:'%(l0, l1), *time2)
     t4_tmp = None
     r4_tmp = None
+    W_oooo = None
     time1 = log.timer_debug1('t4: P7', *time1)
     return r4
 
@@ -777,15 +795,16 @@ def update_amps_rccsdtq_tri_(mycc, tamps, eris):
     nocc4 = t4.shape[0]
     mo_energy = eris.mo_energy
 
+    imds = _IMDS()
+
     # t1, t2
-    t1_fock, t1_eris = update_t1_fock_eris(mycc, t1, eris)
+    update_t1_fock_eris(mycc, imds, t1, eris)
     time1 = log.timer_debug1('update fock and eris', *time0)
-    F_oo, F_vv, W_oooo, W_ovvo, W_ovov = intermediates_t1t2(mycc, t1_fock, t1_eris, t2)
+    intermediates_t1t2(mycc, imds, t2)
     time1 = log.timer_debug1('t1t2: update intermediates', *time1)
-    r1, r2 = compute_r1r2(mycc, t1_fock, t1_eris, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, t2)
-    W_ovvo, W_ovov = None, None
-    r1r2_add_t3_(mycc, r1, r2, t1_fock, t1_eris, t3)
-    r2_add_t4_tri_(mycc, r2, t1_eris, t4)
+    r1, r2 = compute_r1r2(mycc, imds, t2)
+    r1r2_add_t3_(mycc, imds, r1, r2, t3)
+    r2_add_t4_tri_(mycc, imds, r2, t4)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
     # symmetrize R2
     r2 += r2.transpose(1, 0, 3, 2)
@@ -802,12 +821,12 @@ def update_amps_rccsdtq_tri_(mycc, tamps, eris):
     time0 = log.timer_debug1('t1t2 total', *time0)
 
     # t3
-    W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = intermediates_t3(mycc, t1_fock, t1_eris, t2)
-    intermediates_t3_add_t3_(mycc, W_vooo, W_vvvo, t1_eris, t3)
+    intermediates_t3(mycc, imds, t2)
+    intermediates_t3_add_t3(mycc, imds, t3)
     time1 = log.timer_debug1('t3: update intermediates', *time0)
-    r3 = compute_r3(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv, t2, t3)
+    r3 = compute_r3(mycc, imds, t2, t3)
 
-    r3_add_t4_tri_(mycc, r3, t1_fock, t1_eris, t4)
+    r3_add_t4_tri_(mycc, imds, r3, t4)
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrization
     t3_perm_symmetrize_inplace_(r3, nocc, nvir, 1.0, 0.0)
@@ -826,14 +845,11 @@ def update_amps_rccsdtq_tri_(mycc, tamps, eris):
     time0 = log.timer_debug1('t3 total', *time0)
 
     # t4
-    W_vvvo, W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo = intermediates_t4_tri_(mycc, W_vvvo,
-        t1_fock, t1_eris, W_oooo, W_ovov, W_vvvv, t2, t3, t4)
-    t1_fock, t1_eris = None, None
+    intermediates_t4_tri(mycc, imds, t2, t3, t4)
+    imds.t1_fock, imds.t1_eris = None, None
     time1 = log.timer_debug1('t4: update intermediates', *time0)
-    r4 = compute_r4_tri(mycc, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_vvvv,
-                        W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo, t2, t3, t4)
-    F_oo, F_vv, W_oooo, W_ovvo, W_ovov, W_vvvo, W_vooo, W_vvvv = (None,) * 8
-    W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo = (None,) * 5
+    r4 = compute_r4_tri(mycc, imds, t2, t3, t4)
+    imds = None
     time1 = log.timer_debug1('t4: compute r4', *time1)
     # symmetrize r4
     symmetrize_tamps_tri_(r4, nocc)
@@ -993,6 +1009,25 @@ class RCCSDTQ(rccsdt.RCCSDT):
                        tol=self.conv_tol, tolnormt=self.conv_tol_normt, verbose=self.verbose, callback=self.callback)
         self._finalize()
         return self.e_corr, self.tamps
+
+class _IMDS:
+
+    def __init__(self):
+        self.t1_fock = None
+        self.t1_eris = None
+        self.F_oo = None
+        self.F_vv = None
+        self.W_oooo = None
+        self.W_ovvo = None
+        self.W_ovov = None
+        self.W_vooo = None
+        self.W_vvvo = None
+        self.W_vvvv = None
+        self.W_ovvvoo = None
+        self.W_ovvovo = None
+        self.W_vooooo = None
+        self.W_vvoooo = None
+        self.W_vvvvoo = None
 
 
 if __name__ == "__main__":

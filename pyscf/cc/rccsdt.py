@@ -311,14 +311,16 @@ def update_eris(mycc, x, y, eris):
     t1_eris = t1_eris.transpose(2, 3, 0, 1)
     return t1_eris
 
-def update_t1_fock_eris(mycc, t1, eris=None):
+def update_t1_fock_eris(mycc, imds, t1, eris=None):
     '''Compute the Fock matrix and ERIs dressed by T1 amplitudes.'''
     if eris is None:
         eris = mycc.ao2mo(mycc.mo_coeff)
     x, y = update_xy(mycc, t1)
     t1_fock = update_fock(mycc, x, y, t1, eris)
     t1_eris = update_eris(mycc, x, y, eris)
-    return t1_fock, t1_eris
+    imds.t1_fock = t1_fock
+    imds.t1_eris = t1_eris
+    return imds
 
 def symmetrize_tamps_tri_(r, nocc):
     '''Symmetrize tri-stored CC amplitudes r according to equal occupied indices. E.g.,
@@ -436,11 +438,13 @@ def energy_rhf(mycc, tamps, eris=None):
     mycc.e_corr = lib.tag_array((ess + eos).real, e_corr_ss=ess.real, e_corr_os=eos.real)
     return mycc.e_corr
 
-def intermediates_t1t2(mycc, t1_fock, t1_eris, t2):
+def intermediates_t1t2(mycc, imds, t2):
     '''Intermediates for the T1 and T2 residual equation.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocc = mycc.nocc
+
+    t1_fock, t1_eris = imds.t1_fock, imds.t1_eris
 
     F_vv = t1_fock[nocc:, nocc:].copy()
     einsum('kldc,kldb->bc', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=F_vv, alpha=-2.0, beta=1.0)
@@ -458,15 +462,19 @@ def intermediates_t1t2(mycc, t1_fock, t1_eris, t2):
     # TODO: Derive an alternative expression for this term
     W_ovov = - t1_eris[:nocc, nocc:, :nocc, nocc:]
     einsum('kldc,liad->kaic', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovov, alpha=0.5, beta=1.0)
-    return F_oo, F_vv, W_oooo, W_ovvo, W_ovov
+    imds.F_vv, imds.F_oo, imds.W_oooo, imds.W_ovvo, imds.W_ovov = F_vv, F_oo, W_oooo, W_ovvo, W_ovov
+    return imds
 
-def compute_r1r2(mycc, t1_fock, t1_eris, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, t2):
+def compute_r1r2(mycc, imds, t2):
     '''Compute r1 and r2 without the contributions from T3 amplitudes.
     r2 will require a symmetry restoration step afterward.
     '''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocc = mycc.nocc
+
+    t1_fock, t1_eris = imds.t1_fock, imds.t1_eris
+    F_oo, F_vv, W_oooo, W_ovvo, W_ovov = imds.F_oo, imds.F_vv, imds.W_oooo, imds.W_ovvo, imds.W_ovov
 
     c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
     # R1
@@ -484,15 +492,18 @@ def compute_r1r2(mycc, t1_fock, t1_eris, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, t2)
     einsum("kaci,kjcb->ijab", W_ovvo, t2, out=r2, alpha=-2.0, beta=1.0)
     einsum("kaic,kjcb->ijab", W_ovov, t2, out=r2, alpha=1.0, beta=1.0)
     einsum("kaci,jkcb->ijab", W_ovvo, t2, out=r2, alpha=1.0, beta=1.0)
+    W_ovvo, W_ovov = None, None
     return r1, r2
 
-def r1r2_add_t3_tri_(mycc, r1, r2, t1_fock, t1_eris, t3):
+def r1r2_add_t3_tri_(mycc, imds, r1, r2, t3):
     '''Add the T3 contributions to r1 and r2. T3 amplitudes are stored in triangular form.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize = mycc.blksize
+
+    t1_fock, t1_eris = imds.t1_fock, imds.t1_eris
     # r1
     t3_tmp = np.empty((blksize,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     for k0, k1 in lib.prange(0, nocc, blksize):
@@ -533,19 +544,20 @@ def r1r2_divide_e_(mycc, r1, r2, mo_energy):
     r2 /= eijab
     return r1, r2
 
-def intermediates_t3(mycc, t1_fock, t1_eris, t2):
+def intermediates_t3(mycc, imds, t2):
     '''Intermediates for the T3 residual equation (excluding T3 contributions).'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocc = mycc.nocc
 
-    c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
+    t1_fock, t1_eris = imds.t1_fock, imds.t1_eris
 
     W_vvvv = t1_eris[nocc:, nocc:, nocc:, nocc:].copy()
     einsum('lmde,lmab->abde', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_vvvv, alpha=1.0, beta=1.0)
 
     W_vooo = t1_eris[nocc:, :nocc, :nocc, :nocc].copy()
     einsum('ld,ijad->alij', t1_fock[:nocc, nocc:], t2, out=W_vooo, alpha=1.0, beta=1.0)
+    c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
     einsum('mldj,mida->alij', t1_eris[:nocc, :nocc, nocc:, :nocc], c_t2, out=W_vooo, alpha=1.0, beta=1.0)
     einsum('mljd,mida->alij', t1_eris[:nocc, :nocc, :nocc, nocc:], c_t2, out=W_vooo, alpha=-0.5, beta=1.0)
     einsum('mljd,imda->alij', t1_eris[:nocc, :nocc, :nocc, nocc:], t2, out=W_vooo, alpha=-0.5, beta=1.0)
@@ -562,12 +574,14 @@ def intermediates_t3(mycc, t1_fock, t1_eris, t2):
     W_ovvo = (2.0 * t1_eris[:nocc, nocc:, nocc:, :nocc] - t1_eris[:nocc, nocc:, :nocc, nocc:].transpose(0, 1, 3, 2))
     einsum('mled,miea->ladi', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo, alpha=2.0, beta=1.0)
     einsum('mlde,miea->ladi', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=W_ovvo, alpha=-1.0, beta=1.0)
+    c_t2 = None
 
     W_ovov = t1_eris[:nocc, nocc:, :nocc, nocc:].copy()
     einsum('mlde,imea->laid', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovov, alpha=-1.0, beta=1.0)
-    return W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv
+    imds.W_vooo, imds.W_ovvo, imds.W_ovov, imds.W_vvvo, imds.W_vvvv = W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv
+    return imds
 
-def intermediates_t3_add_t3_tri_(mycc, W_vooo, W_vvvo, t1_eris, t3):
+def intermediates_t3_add_t3_tri(mycc, imds, t3):
     '''Add the T3-dependent contributions to the T3 intermediates, with T3 stored in triangular form.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
@@ -575,6 +589,9 @@ def intermediates_t3_add_t3_tri_(mycc, W_vooo, W_vvvo, t1_eris, t3):
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize = mycc.blksize
+
+    t1_eris = imds.t1_eris
+    W_vooo, W_vvvo = imds.W_vooo, imds.W_vvvo
 
     t3_tmp = np.empty((blksize,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     for j0, j1 in lib.prange(0, nocc, blksize):
@@ -590,9 +607,10 @@ def intermediates_t3_add_t3_tri_(mycc, W_vooo, W_vvvo, t1_eris, t3):
                 einsum('lmde,mjleba->abdj', t1_eris[l0:l1, m0:m1, nocc:, nocc:],
                     t3_tmp[:bm, :bj, :bl], out=W_vvvo[:, :, :, j0:j1], alpha=-1.0, beta=1.0)
     t3_tmp = None
-    return W_vooo, W_vvvo
+    imds.fock, imds.t1_eris = None, None
+    return imds
 
-def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv, t2, t3):
+def compute_r3_tri(mycc, imds, t2, t3):
     '''Compute r3 with triangular-stored T3 amplitudes; r3 is returned in triangular form as well.
     r3 will require a symmetry restoration step afterward.
     '''
@@ -604,6 +622,10 @@ def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_v
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     blksize, blksize_oovv, blksize_oooo = mycc.blksize, mycc.blksize_oovv, mycc.blksize_oooo
+
+    F_oo, F_vv = imds.F_oo, imds.F_vv
+    W_oooo, W_ovvo, W_ovov, W_vvvv = imds.W_oooo, imds.W_ovvo, imds.W_ovov, imds.W_vvvv
+    W_vooo, W_vvvo = imds.W_vooo, imds.W_vvvo
 
     r3 = np.zeros_like(t3)
 
@@ -630,17 +652,17 @@ def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_v
                 einsum('cbdj,kida->ijkabc', W_vvvo[..., j0:j1], t2[k0:k1, i0:i1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
                 # R3: P1
-                einsum('alij,lkbc->ijkabc', W_vooo[:, :, i0:i1, j0:j1], t2[:, k0:k1, :, :],
+                einsum('alij,lkbc->ijkabc', W_vooo[:, :, i0:i1, j0:j1], t2[:, k0:k1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum('alik,ljcb->ijkabc', W_vooo[:, :, i0:i1, k0:k1], t2[:, j0:j1, :, :],
+                einsum('alik,ljcb->ijkabc', W_vooo[:, :, i0:i1, k0:k1], t2[:, j0:j1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum('blji,lkac->ijkabc', W_vooo[:, :, j0:j1, i0:i1], t2[:, k0:k1, :, :],
+                einsum('blji,lkac->ijkabc', W_vooo[:, :, j0:j1, i0:i1], t2[:, k0:k1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum('bljk,lica->ijkabc', W_vooo[:, :, j0:j1, k0:k1], t2[:, i0:i1, :, :],
+                einsum('bljk,lica->ijkabc', W_vooo[:, :, j0:j1, k0:k1], t2[:, i0:i1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum('clki,ljab->ijkabc', W_vooo[:, :, k0:k1, i0:i1], t2[:, j0:j1, :, :],
+                einsum('clki,ljab->ijkabc', W_vooo[:, :, k0:k1, i0:i1], t2[:, j0:j1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                einsum('clkj,liba->ijkabc', W_vooo[:, :, k0:k1, j0:j1], t2[:, i0:i1, :, :],
+                einsum('clkj,liba->ijkabc', W_vooo[:, :, k0:k1, j0:j1], t2[:, i0:i1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 # R3: P2
                 _unpack_t3_(mycc, t3, t3_tmp, i0, i1, j0, j1, k0, k1)
@@ -654,6 +676,7 @@ def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_v
         time2 = log.timer_debug1('t3: iter: W_vvvo, W_vooo, F_vv [%3d, %3d]:'%(k0, k1), *time2)
     t3_tmp = None
     r3_tmp = None
+    F_vv, W_vooo, W_vvvo = None, None, None
     time1 = log.timer_debug1('t3: W_vvvo * t2, W_vooo * t2, F_vv * t3', *time1)
 
     # R3: P3 and P4
@@ -693,6 +716,7 @@ def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_v
         time2 = log.timer_debug1('t3: iter: F_oo, W_ovvo [%3d, %3d]:'%(k0, k1), *time2)
     t3_tmp = None
     r3_tmp = None
+    F_oo, W_ovvo = None, None
     time1 = log.timer_debug1('t3: F_oo * t3, W_ovvo * t3', *time1)
 
     # R3: P5 & P6
@@ -744,6 +768,7 @@ def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_v
         time2 = log.timer_debug1('t3: iter: W_ovov [%3d, %3d]:'%(k0, k1), *time2)
     t3_tmp = None
     r3_tmp = None
+    W_ovov = None
     time1 = log.timer_debug1('t3: W_ovov * t3', *time1)
 
     # R3: P7
@@ -772,6 +797,7 @@ def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_v
         time2 = log.timer_debug1('t3: iter: W_oooo [%3d, %3d]:'%(l0, l1), *time2)
     t3_tmp = None
     r3_tmp = None
+    W_oooo = None
     time1 = log.timer_debug1('t3: W_oooo * t3', *time1)
 
     # R3: P8
@@ -794,6 +820,7 @@ def compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_v
         time2 = log.timer_debug1('t3: iter: W_vvvv %3d:'%k0, *time2)
     t3_tmp_s = None
     r3_tmp_s = None
+    W_vvvv = None
     time1 = log.timer_debug1('t3: W_vvvv * t3', *time1)
     return r3
 
@@ -828,18 +855,18 @@ def update_amps_rccsdt_tri_(mycc, tamps, eris):
     nocc, nmo = mycc.nocc, mycc.nmo
     nvir = nmo - nocc
     t1, t2, t3 = tamps
-    # mo_energy = eris.mo_energy.copy()
     mo_energy = eris.mo_energy
 
+    imds = _IMDS()
+
     # t1 t2
-    t1_fock, t1_eris = update_t1_fock_eris(mycc, t1, eris)
+    update_t1_fock_eris(mycc, imds, t1, eris)
     time1 = log.timer_debug1('update fock and eris', *time0)
-    # intermediates_t1t2_(mycc, t1_fock, t1_eris, t2)
-    F_oo, F_vv, W_oooo, W_ovvo, W_ovov = intermediates_t1t2(mycc, t1_fock, t1_eris, t2)
+    intermediates_t1t2(mycc, imds, t2)
     time1 = log.timer_debug1('t1t2: update intermediates', *time1)
-    r1, r2 = compute_r1r2(mycc, t1_fock, t1_eris, F_oo, F_vv, W_oooo, W_ovvo, W_ovov, t2)
-    W_ovvo, W_ovov = None, None
-    r1r2_add_t3_tri_(mycc, r1, r2, t1_fock, t1_eris, t3)
+    r1, r2 = compute_r1r2(mycc, imds, t2)
+    # imds.W_ovvo, imds.W_ovov = None, None
+    r1r2_add_t3_tri_(mycc, imds, r1, r2, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
     # symmetrize r2
     r2 += r2.transpose(1, 0, 3, 2)
@@ -856,12 +883,13 @@ def update_amps_rccsdt_tri_(mycc, tamps, eris):
     time0 = log.timer_debug1('t1t2 total', *time0)
 
     # t3
-    W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = intermediates_t3(mycc, t1_fock, t1_eris, t2)
-    intermediates_t3_add_t3_tri_(mycc, W_vooo, W_vvvo, t1_eris, t3)
-    t1_fock, t1_eris = None, None
+    intermediates_t3(mycc, imds, t2)
+    intermediates_t3_add_t3_tri(mycc, imds, t3)
+    imds.t1_fock, imds.t1_eris = None, None
     time1 = log.timer_debug1('t3: update intermediates', *time0)
-    r3 = compute_r3_tri(mycc, F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv, t2, t3)
-    F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = (None,) * 8
+    r3 = compute_r3_tri(mycc, imds, t2, t3)
+    # F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = (None,) * 8
+    imds = None
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrize r3
     symmetrize_tamps_tri_(r3, nocc)
@@ -1416,6 +1444,19 @@ class RCCSDT(ccsd.CCSDBase):
     def ccsdt_q(self, tamps, eris=None):
         raise NotImplementedError
 
+class _IMDS:
+
+    def __init__(self):
+        self.t1_fock = None
+        self.t1_eris = None
+        self.F_oo = None
+        self.F_vv = None
+        self.W_oooo = None
+        self.W_ovvo = None
+        self.W_ovov = None
+        self.W_vooo = None
+        self.W_vvvo = None
+        self.W_vvvv = None
 
 class _PhysicistsERIs:
     '''<pq|rs> = (pr|qs)'''

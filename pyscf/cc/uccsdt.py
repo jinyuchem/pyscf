@@ -309,9 +309,8 @@ def _unp_bba_(mycc, t3, t3_blk, i0, i1, j0, j1, a0, a1, b0, b1, k0=None, k1=None
                                 noccb, nvirb, dim4, dim5, blk_i, blk_j, blk_a, blk_b)
     return t3_blk
 
-def _update_packed_aab_(mycc, t3, t3_blk, i0, i1, j0, j1, a0, a1, b0, b1,
-                        k0=None, k1=None, c0=None, c1=None, blk_i=None, blk_j=None, blk_a=None, blk_b=None,
-                        dim4=None, dim5=None, alpha=1.0, beta=0.0):
+def _update_packed_aab_(mycc, t3, t3_blk, i0, i1, j0, j1, a0, a1, b0, b1, k0=None, k1=None, c0=None, c1=None,
+                        blk_i=None, blk_j=None, blk_a=None, blk_b=None, dim4=None, dim5=None, alpha=1.0, beta=0.0):
     nocca, noccb = mycc.nocc
     nmoa, nmob = mycc.nmo
     nvira, nvirb = nmoa - nocca, nmob - noccb
@@ -330,9 +329,8 @@ def _update_packed_aab_(mycc, t3, t3_blk, i0, i1, j0, j1, a0, a1, b0, b1,
                                     blk_i, blk_j, blk_a, blk_b, alpha=alpha, beta=beta)
     return t3
 
-def _update_packed_bba_(mycc, t3, t3_blk, i0, i1, j0, j1, a0, a1, b0, b1,
-                        k0=None, k1=None, c0=None, c1=None, blk_i=None, blk_j=None, blk_a=None, blk_b=None,
-                        dim4=None, dim5=None, alpha=1.0, beta=0.0):
+def _update_packed_bba_(mycc, t3, t3_blk, i0, i1, j0, j1, a0, a1, b0, b1, k0=None, k1=None, c0=None, c1=None,
+                        blk_i=None, blk_j=None, blk_a=None, blk_b=None, dim4=None, dim5=None, alpha=1.0, beta=0.0):
     nocca, noccb = mycc.nocc
     nmoa, nmob = mycc.nmo
     nvira, nvirb = nmoa - nocca, nmob - noccb
@@ -524,7 +522,7 @@ def update_eris_uhf(mycc, xa, xb, ya, yb, eris):
     t1_erisab = t1_erisab.transpose(2, 3, 0, 1)
     return t1_erisaa, t1_erisab, t1_erisbb
 
-def update_t1_fock_eris_uhf(mycc, t1, eris=None):
+def update_t1_fock_eris_uhf(mycc, imds, t1, eris=None):
     '''Compute the Fock matrix and ERIs dressed by T1 amplitudes.
     `t1_erisaa` and `t1_erisbb` are anti-symmetrized.
     '''
@@ -532,16 +530,19 @@ def update_t1_fock_eris_uhf(mycc, t1, eris=None):
         eris = mycc.ao2mo(mycc.mo_coeff)
     xa, xb, ya, yb = update_xy_uhf(mycc, t1)
     t1_focka, t1_fockb = update_fock_uhf(mycc, xa, xb, ya, yb, t1, eris)
-    t1_erisaa, t1_erisab, mycc.t1_erisbb = update_eris_uhf(mycc, xa, xb, ya, yb, eris)
-    return (t1_focka, t1_fockb), (t1_erisaa, t1_erisab, mycc.t1_erisbb)
+    t1_erisaa, t1_erisab, t1_erisbb = update_eris_uhf(mycc, xa, xb, ya, yb, eris)
+    imds.t1_fock = (t1_focka, t1_fockb)
+    imds.t1_eris = (t1_erisaa, t1_erisab, t1_erisbb)
+    return imds
 
-def intermediates_t1t2_uhf(mycc, t1_fock, t1_eris, t2):
+def intermediates_t1t2_uhf(mycc, imds, t2):
     '''Intermediates for the T1 and T2 residual equation.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocca, noccb = mycc.nocc
-    t1_focka, t1_fockb = t1_fock
-    t1_erisaa, t1_erisab, t1_erisbb = t1_eris
+
+    t1_focka, t1_fockb = imds.t1_fock
+    t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
     t2aa, t2ab, t2bb = t2
     # aa
     F_vv = t1_focka[nocca:, nocca:].copy()
@@ -592,20 +593,29 @@ def intermediates_t1t2_uhf(mycc, t1_fock, t1_eris, t2):
     W_VovO = t1_erisab[:nocca, noccb:, nocca:, :noccb].transpose(1, 0, 2, 3).copy()
     einsum('klcd,ljdb->bkcj', t1_erisab[:nocca, :noccb, nocca:, noccb:], t2bb, out=W_VovO, alpha=0.5, beta=1.0)
     einsum('lkdc,ldjb->bkcj', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t2ab, out=W_VovO, alpha=0.5, beta=1.0)
-    return (F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovvo, W_oVvO, W_OvVo, W_OVVO,
-            W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO)
+    imds.F_oo, imds.F_OO, imds.F_vv, imds.F_VV = F_oo, F_OO, F_vv, F_VV
+    imds.W_oooo, imds.W_oOoO, imds.W_OOOO = W_oooo, W_oOoO, W_OOOO
+    imds.W_ovvo, imds.W_oVvO, imds.W_OvVo, imds.W_OVVO = W_ovvo, W_oVvO, W_OvVo, W_OVVO,
+    imds.W_vovo, imds.W_vOvO, imds.W_vOVo = W_vovo, W_vOvO, W_vOVo
+    imds.W_VovO, imds.W_VoVo, imds.W_VOVO = W_VovO, W_VoVo, W_VOVO
+    return imds
 
-def compute_r1r2_uhf(mycc, t1_fock, t1_eris, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO,
-                    W_ovvo, W_oVvO, W_OvVo, W_OVVO, W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO, t2):
+def compute_r1r2_uhf(mycc, imds, t2):
     '''Compute r1 and r2 without the contributions from T3 amplitudes.
     r2 will require a symmetry restoration step afterward.
     '''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocca, noccb = mycc.nocc
-    t1_focka, t1_fockb = t1_fock
-    t1_erisaa, t1_erisab, t1_erisbb = t1_eris
+    t1_focka, t1_fockb = imds.t1_fock
+    t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
     t2aa, t2ab, t2bb = t2
+
+    F_oo, F_OO, F_vv, F_VV = imds.F_oo, imds.F_OO, imds.F_vv, imds.F_VV
+    W_oooo, W_oOoO, W_OOOO = imds.W_oooo, imds.W_oOoO, imds.W_OOOO
+    W_ovvo, W_oVvO, W_OvVo, W_OVVO = imds.W_ovvo, imds.W_oVvO, imds.W_OvVo, imds.W_OVVO
+    W_vovo, W_vOvO, W_vOVo = imds.W_vovo, imds.W_vOvO, imds.W_vOVo
+    W_VovO, W_VoVo, W_VOVO = imds.W_VovO, imds.W_VoVo, imds.W_VOVO
 
     r1a = t1_focka[nocca:, :nocca].T.copy()
     einsum('kc,ikac->ia', t1_focka[:nocca, nocca:], t2aa, out=r1a, alpha=1.0, beta=1.0)
@@ -630,6 +640,7 @@ def compute_r1r2_uhf(mycc, t1_fock, t1_eris, F_oo, F_OO, F_vv, F_VV, W_oooo, W_o
     einsum("klij,klab->ijab", W_oooo, t2aa, out=r2aa, alpha=0.125, beta=1.0)
     einsum("kbcj,ikac->ijab", W_ovvo, t2aa, out=r2aa, alpha=1.0, beta=1.0)
     einsum("kbcj,iakc->ijab", W_OvVo, t2ab, out=r2aa, alpha=1.0, beta=1.0)
+    W_ovvo, W_OvVo = None, None
 
     r2ab = t1_erisab[nocca:, noccb:, :nocca, :noccb].transpose(2, 3, 0, 1).copy()
     r2ab = r2ab.transpose(0, 2, 1, 3)
@@ -645,6 +656,7 @@ def compute_r1r2_uhf(mycc, t1_fock, t1_eris, F_oo, F_OO, F_vv, F_VV, W_oooo, W_o
     einsum("bkcj,ikac->iajb", W_VovO, t2aa, out=r2ab, alpha=1.0, beta=1.0)
     einsum("bkcj,iakc->iajb", W_VOVO, t2ab, out=r2ab, alpha=1.0, beta=1.0)
     einsum("bkci,kajc->iajb", W_VoVo, t2ab, out=r2ab, alpha=1.0, beta=1.0)
+    W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO = (None,) * 6
 
     r2bb = 0.25 * t1_erisbb[noccb:, noccb:, :noccb, :noccb].T
     einsum("bc,ijac->ijab", F_VV, t2bb, out=r2bb, alpha=0.5, beta=1.0)
@@ -653,9 +665,10 @@ def compute_r1r2_uhf(mycc, t1_fock, t1_eris, F_oo, F_OO, F_vv, F_VV, W_oooo, W_o
     einsum("klij,klab->ijab", W_OOOO, t2bb, out=r2bb, alpha=0.125, beta=1.0)
     einsum("kbcj,ikac->ijab", W_OVVO, t2bb, out=r2bb, alpha=1.0, beta=1.0)
     einsum("kbcj,kcia->ijab", W_oVvO, t2ab, out=r2bb, alpha=1.0, beta=1.0)
+    W_oVvO, W_OVVO = None, None
     return [r1a, r1b], [r2aa, r2ab, r2bb]
 
-def r1r2_add_t3_tri_uhf_(mycc, t1_fock, t1_eris, t3, r1, r2):
+def r1r2_add_t3_tri_uhf_(mycc, imds, r1, r2, t3):
     '''Add the T3 contributions to r1 and r2. T3 amplitudes are stored in triangular form.'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
@@ -664,8 +677,8 @@ def r1r2_add_t3_tri_uhf_(mycc, t1_fock, t1_eris, t3, r1, r2):
     nvira, nvirb = nmoa - nocca, nmob - noccb
     blksize_o_aaa, blksize_v_aaa = mycc.blksize_o_aaa, mycc.blksize_v_aaa
     blksize_o_aab, blksize_v_aab = mycc.blksize_o_aab, mycc.blksize_v_aab
-    t1_focka, t1_fockb = t1_fock
-    t1_erisaa, t1_erisab, t1_erisbb = t1_eris
+    t1_focka, t1_fockb = imds.t1_fock
+    t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
 
     t3aaa, t3aab, t3bba, t3bbb = t3
     (r1a, r1b), (r2aa, r2ab, r2bb) = r1, r2
@@ -824,13 +837,13 @@ def r1r2_divide_e_uhf_(mycc, r1, r2, mo_energy):
     eia_a, eia_b, eijab_aa, eijab_ab, eijab_bb = None, None, None, None, None
     return r1, r2
 
-def intermediates_t3_uhf(mycc, t1_fock, t1_eris, t2):
+def intermediates_t3_uhf(mycc, imds, t2):
     '''Intermediates for the T3 residual equation (excluding T3 contributions).'''
     backend = mycc.einsum_backend
     einsum = functools.partial(_einsum, backend)
     nocca, noccb = mycc.nocc
-    t1_focka, t1_fockb = t1_fock
-    t1_erisaa, t1_erisab, t1_erisbb = t1_eris
+    t1_focka, t1_fockb = imds.t1_fock
+    t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
     t2aa, t2ab, t2bb = t2
     # aaa
     W_vvvv = t1_erisaa[nocca:, nocca:, nocca:, nocca:].copy()
@@ -897,10 +910,15 @@ def intermediates_t3_uhf(mycc, t1_fock, t1_eris, t2):
     einsum('mldk,jmad->aljk', t1_erisab[:nocca, :noccb, nocca:, :noccb], t2aa, out=W_vOoO, alpha=1.0, beta=1.0)
     einsum('mldk,jamd->aljk', t1_erisbb[:noccb, :noccb, noccb:, :noccb], t2ab, out=W_vOoO, alpha=1.0, beta=1.0)
     einsum('alde,jdke->aljk', t1_erisab[nocca:, :noccb, nocca:, noccb:], t2ab, out=W_vOoO, alpha=1.0, beta=1.0)
-    return (W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_oVoV, W_vOvO,
-            W_vvvo, W_vVvO, W_VVVO, W_vVoV, W_vvvv, W_vVvV, W_VVVV)
+    imds.W_ovoo, imds.W_oVoO, imds.W_OVOO = W_ovoo, W_oVoO, W_OVOO
+    imds.W_vOoO, imds.W_vVoV = W_vOoO, W_vVoV
+    imds.W_voov, imds.W_vOoV, imds.W_VoOv, imds.W_VOOV = W_voov, W_vOoV, W_VoOv, W_VOOV
+    imds.W_oVoV, imds.W_vOvO = W_oVoV, W_vOvO
+    imds.W_vvvo, imds.W_vVvO, imds.W_VVVO = W_vvvo, W_vVvO, W_VVVO
+    imds.W_vvvv, imds.W_vVvV, imds.W_VVVV = W_vvvv, W_vVvV, W_VVVV
+    return imds
 
-def intermediates_t3_add_t3_tri_uhf_(mycc, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvvo, W_vVvO, W_VVVO, W_vVoV, t1_eris, t3):
+def intermediates_t3_add_t3_tri_uhf(mycc, imds, t3):
     '''Add the T3-dependent contributions to the T3 intermediates, with T3 stored in triangular form.'''
     '''Update W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvvo, W_vVvO, W_VVVO, W_vVoV inplace.'''
     backend = mycc.einsum_backend
@@ -910,8 +928,12 @@ def intermediates_t3_add_t3_tri_uhf_(mycc, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvv
     nvira, nvirb = nmoa - nocca, nmob - noccb
     blksize_o_aaa, blksize_v_aaa = mycc.blksize_o_aaa, mycc.blksize_v_aaa
     blksize_o_aab, blksize_v_aab = mycc.blksize_o_aab, mycc.blksize_v_aab
-    t1_erisaa, t1_erisab, t1_erisbb = t1_eris
+    t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
     t3aaa, t3aab, t3bba, t3bbb = t3
+
+    W_ovoo, W_oVoO, W_OVOO = imds.W_ovoo, imds.W_oVoO, imds.W_OVOO
+    W_vvvo, W_vVvO, W_VVVO = imds.W_vvvo, imds.W_vVvO, imds.W_VVVO
+    W_vOoO, W_vVoV = imds.W_vOoO, imds.W_vVoV
 
     t3_tmp = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=t3aaa.dtype)
     for l0, l1 in lib.prange(0, nocca, blksize_o_aaa):
@@ -1008,9 +1030,9 @@ def intermediates_t3_add_t3_tri_uhf_(mycc, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvv
                         t1_erisbb[:noccb, l0:l1, noccb + c0:noccb + c1, noccb + b0:noccb + b1],
                         t3_tmp[:bl, :bk, :bb, :bc], out=W_vOoO[:, :, :, k0:k1], alpha=0.5, beta=1.0)
     t3_tmp = None
-    return W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvvo, W_vVvO, W_VVVO, W_vVoV
+    return imds
 
-def compute_r3aaa_tri_uhf(mycc, F_oo, F_vv, W_oooo, W_ovoo, W_voov, W_vOoV, W_vvvo, W_vvvv, t2, t3):
+def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
@@ -1020,8 +1042,12 @@ def compute_r3aaa_tri_uhf(mycc, F_oo, F_vv, W_oooo, W_ovoo, W_voov, W_vOoV, W_vv
     nmoa, nmob = mycc.nmo
     nvira, nvirb = nmoa - nocca, nmob - noccb
     blksize_o_aaa, blksize_v_aaa = mycc.blksize_o_aaa, mycc.blksize_v_aaa
-    t2aa, _, _ = t2
-    t3aaa, t3aab, _, _ = t3
+    t2aa = t2[0]
+    t3aaa, t3aab = t3[0:2]
+
+    F_oo, F_vv = imds.F_oo, imds.F_vv
+    W_oooo, W_ovoo, W_vvvo, W_vvvv = imds.W_oooo, imds.W_ovoo, imds.W_vvvo, imds.W_vvvv
+    W_voov, W_vOoV = imds.W_voov, imds.W_vOoV
 
     r3aaa = np.zeros_like(t3aaa)
     time2 = logger.process_clock(), logger.perf_counter()
@@ -1266,7 +1292,7 @@ def compute_r3aaa_tri_uhf(mycc, F_oo, F_vv, W_oooo, W_ovoo, W_voov, W_vOoV, W_vv
     time1 = log.timer_debug1('t3: r3aaa', *time1)
     return r3aaa
 
-def compute_r3bbb_tri_uhf(mycc, F_OO, F_VV, W_OOOO, W_OVOO, W_VoOv, W_VOOV, W_VVVO, W_VVVV, t2, t3):
+def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
@@ -1276,8 +1302,12 @@ def compute_r3bbb_tri_uhf(mycc, F_OO, F_VV, W_OOOO, W_OVOO, W_VoOv, W_VOOV, W_VV
     nmoa, nmob = mycc.nmo
     nvira, nvirb = nmoa - nocca, nmob - noccb
     blksize_o_aaa, blksize_v_aaa = mycc.blksize_o_aaa, mycc.blksize_v_aaa
-    _, _, t2bb = t2
-    _, _, t3bba, t3bbb = t3
+    t2bb = t2[2]
+    t3bba, t3bbb = t3[2:4]
+
+    F_OO, F_VV = imds.F_OO, imds.F_VV
+    W_OOOO, W_OVOO, W_VVVO, W_VVVV = imds.W_OOOO, imds.W_OVOO, imds.W_VVVO, imds.W_VVVV
+    W_VoOv, W_VOOV = imds.W_VoOv, imds.W_VOOV
 
     r3bbb = np.zeros_like(t3bbb)
     time2 = logger.process_clock(), logger.perf_counter()
@@ -1522,8 +1552,7 @@ def compute_r3bbb_tri_uhf(mycc, F_OO, F_VV, W_OOOO, W_OVOO, W_VoOv, W_VOOV, W_VV
     time1 = log.timer_debug1('t3: r3bbb', *time1)
     return r3bbb
 
-def compute_r3aab_tri_uhf(mycc, F_oo, F_vv, F_OO, F_VV, W_oooo, W_oOoO, W_ovoo, W_oVoO, W_vOoO, W_oVoV,
-                        W_vOvO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vvvo, W_vVvO, W_vvvv, W_vVvV, t2, t3):
+def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
 
@@ -1533,8 +1562,14 @@ def compute_r3aab_tri_uhf(mycc, F_oo, F_vv, F_OO, F_VV, W_oooo, W_oOoO, W_ovoo, 
     nmoa, nmob = mycc.nmo
     nvira, nvirb = nmoa - nocca, nmob - noccb
     blksize_o_aab, blksize_v_aab = mycc.blksize_o_aab, mycc.blksize_v_aab
-    t2aa, t2ab, _ = t2
-    t3aaa, t3aab, t3bba, _ = t3
+    t2aa, t2ab = t2[0:2]
+    t3aaa, t3aab, t3bba = t3[0:3]
+
+    F_oo, F_vv, F_OO, F_VV = imds.F_oo, imds.F_vv, imds.F_OO, imds.F_VV
+    W_oooo, W_oOoO, W_ovoo, W_oVoO = imds.W_oooo, imds.W_oOoO, imds.W_ovoo, imds.W_oVoO
+    W_vOoO, W_oVoV, W_vOvO, W_vVoV = imds.W_vOoO, imds.W_oVoV, imds.W_vOvO, imds.W_vVoV
+    W_voov, W_vOoV, W_VoOv, W_VOOV = imds.W_voov, imds.W_vOoV, imds.W_VoOv, imds.W_VOOV
+    W_vvvo, W_vVvO, W_vvvv, W_vVvV = imds.W_vvvo, imds.W_vVvO, imds.W_vvvv, imds.W_vVvV
 
     r3aab = np.zeros_like(t3aab)
     time2 = logger.process_clock(), logger.perf_counter()
@@ -1744,12 +1779,12 @@ def compute_r3aab_tri_uhf(mycc, F_oo, F_vv, F_OO, F_VV, W_oooo, W_oOoO, W_ovoo, 
     t3_tmp = None
     t3_tmp_2 = None
     t3_tmp_3 = None
+    W_vvvo, W_ovoo, W_vvvv, W_oooo = (None,) * 4
 
     time1 = log.timer_debug1('t3: r3aab', *time1)
     return r3aab
 
-def compute_r3bba_tri_uhf(mycc, F_oo, F_vv, F_OO, F_VV, W_oOoO, W_OOOO, W_oVoO, W_OVOO, W_vOoO, W_oVoV,
-                            W_vOvO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vVvO, W_VVVO, W_vVvV, W_VVVV, t2, t3):
+def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
     time1 = logger.process_clock(), logger.perf_counter()
     log = logger.Logger(mycc.stdout, mycc.verbose)
     backend = mycc.einsum_backend
@@ -1759,8 +1794,14 @@ def compute_r3bba_tri_uhf(mycc, F_oo, F_vv, F_OO, F_VV, W_oOoO, W_OOOO, W_oVoO, 
     nmoa, nmob = mycc.nmo
     nvira, nvirb = nmoa - nocca, nmob - noccb
     blksize_o_aab, blksize_v_aab = mycc.blksize_o_aab, mycc.blksize_v_aab
-    _, t2ab, t2bb = t2
-    _, t3aab, t3bba, t3bbb = t3
+    t2ab, t2bb = t2[1:3]
+    t3aab, t3bba, t3bbb = t3[1:4]
+
+    F_oo, F_vv, F_OO, F_VV = imds.F_oo, imds.F_vv, imds.F_OO, imds.F_VV
+    W_oOoO, W_OOOO, W_oVoO, W_OVOO = imds.W_oOoO, imds.W_OOOO, imds.W_oVoO, imds.W_OVOO
+    W_vOoO, W_oVoV, W_vOvO, W_vVoV = imds.W_vOoO, imds.W_oVoV, imds.W_vOvO, imds.W_vVoV
+    W_voov, W_vOoV, W_VoOv, W_VOOV = imds.W_voov, imds.W_vOoV, imds.W_VoOv, imds.W_VOOV
+    W_vVvO, W_VVVO, W_vVvV, W_VVVV = imds.W_vVvO, imds.W_VVVO, imds.W_vVvV, imds.W_VVVV
 
     r3bba = np.zeros_like(t3bba)
     time2 = logger.process_clock(), logger.perf_counter()
@@ -1970,20 +2011,19 @@ def compute_r3bba_tri_uhf(mycc, F_oo, F_vv, F_OO, F_VV, W_oOoO, W_OOOO, W_oVoO, 
     t3_tmp = None
     t3_tmp_2 = None
     t3_tmp_3 = None
+    F_oo, F_OO, F_vv, F_VV = (None,) * 4
+    (W_vVoV, W_vVvO, W_voov, W_vOoV, W_oVoO, W_vOoO, W_vVvV, W_oOoO, W_oVoV, W_vOvO, W_VoOv, W_VOOV,
+        W_VVVV, W_VVVO, W_OVOO, W_OOOO) = (None,) * 16
 
     time1 = log.timer_debug1('t3: r3bba', *time1)
     return r3bba
 
-def compute_r3_tri_uhf(mycc, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo, W_oVoO, W_OVOO, W_vOoO,
-                        W_oVoV, W_vOvO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vvvo, W_vVvO, W_VVVO,
-                        W_vvvv, W_vVvV, W_VVVV, t2, t3):
+def compute_r3_tri_uhf(mycc, imds, t2, t3):
     '''Compute r3 with triangular-stored T3 amplitudes; r3 is returned in triangular form as well.'''
-    r3aaa = compute_r3aaa_tri_uhf(mycc, F_oo, F_vv, W_oooo, W_ovoo, W_voov, W_vOoV, W_vvvo, W_vvvv, t2, t3)
-    r3aab = compute_r3aab_tri_uhf(mycc, F_oo, F_vv, F_OO, F_VV, W_oooo, W_oOoO, W_ovoo, W_oVoO, W_vOoO, W_oVoV,
-                            W_vOvO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vvvo, W_vVvO, W_vvvv, W_vVvV, t2, t3)
-    r3bba = compute_r3bba_tri_uhf(mycc, F_oo, F_vv, F_OO, F_VV, W_oOoO, W_OOOO, W_oVoO, W_OVOO, W_vOoO, W_oVoV,
-                            W_vOvO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vVvO, W_VVVO, W_vVvV, W_VVVV, t2, t3)
-    r3bbb = compute_r3bbb_tri_uhf(mycc, F_OO, F_VV, W_OOOO, W_OVOO, W_VoOv, W_VOOV, W_VVVO, W_VVVV, t2, t3)
+    r3aaa = compute_r3aaa_tri_uhf(mycc, imds, t2, t3)
+    r3aab = compute_r3aab_tri_uhf(mycc, imds, t2, t3)
+    r3bba = compute_r3bba_tri_uhf(mycc, imds, t2, t3)
+    r3bbb = compute_r3bbb_tri_uhf(mycc, imds, t2, t3)
     r3 = [r3aaa, r3aab, r3bba, r3bbb]
     return r3
 
@@ -2099,16 +2139,15 @@ def update_amps_uccsdt_tri_(mycc, tamps, eris):
     t3aaa, t3aab, t3bba, t3bbb = t3
     mo_energy = eris.mo_energy
 
+    imds = _IMDS()
+
     # t1 t2
-    t1_fock, t1_eris = update_t1_fock_eris_uhf(mycc, t1, eris)
+    update_t1_fock_eris_uhf(mycc, imds, t1, eris)
     time1 = log.timer_debug1('t1t2: update fock and eris', *time0)
-    (F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovvo, W_oVvO, W_OvVo, W_OVVO,
-        W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO) = intermediates_t1t2_uhf(mycc, t1_fock, t1_eris, t2)
+    intermediates_t1t2_uhf(mycc, imds, t2)
     time1 = log.timer_debug1('t1t2: update intermediates', *time1)
-    r1, r2 = compute_r1r2_uhf(mycc, t1_fock, t1_eris, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO,
-                                W_ovvo, W_oVvO, W_OvVo, W_OVVO, W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO, t2)
-    W_ovvo, W_oVvO, W_OvVo, W_OVVO, W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO = (None,) * 10
-    r1r2_add_t3_tri_uhf_(mycc, t1_fock, t1_eris, t3, r1, r2)
+    r1, r2 = compute_r1r2_uhf(mycc, imds, t2)
+    r1r2_add_t3_tri_uhf_(mycc, imds, r1, r2, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
     # antisymmetrize R2
     antisymmetrize_r2_uhf_(r2)
@@ -2130,16 +2169,12 @@ def update_amps_uccsdt_tri_(mycc, tamps, eris):
     time0 = log.timer_debug1('t1t2 total', *time0)
 
     # t3
-    (W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_oVoV, W_vOvO, W_vvvo, W_vVvO, W_VVVO,
-        W_vVoV, W_vvvv, W_vVvV, W_VVVV) = intermediates_t3_uhf(mycc, t1_fock, t1_eris, t2)
-    intermediates_t3_add_t3_tri_uhf_(mycc, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_vvvo, W_vVvO, W_VVVO, W_vVoV, t1_eris, t3)
-    t1_fock, t1_eris = None, None
+    intermediates_t3_uhf(mycc, imds, t2)
+    intermediates_t3_add_t3_tri_uhf(mycc, imds, t3)
+    imds.t1_fock, imds.t1_eris = None, None
     time1 = log.timer_debug1('t3: update intermediates', *time0)
-    r3 = compute_r3_tri_uhf(mycc, F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo, W_oVoO, W_OVOO, W_vOoO,
-                            W_oVoV, W_vOvO, W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vvvo, W_vVvO, W_VVVO,
-                            W_vvvv, W_vVvV, W_VVVV, t2, t3)
-    (F_oo, F_OO, F_vv, F_VV, W_oooo, W_oOoO, W_OOOO, W_ovoo, W_oVoO, W_OVOO, W_vOoO, W_oVoV, W_vOvO,
-        W_voov, W_vOoV, W_VoOv, W_VOOV, W_vVoV, W_vvvo, W_vVvO, W_VVVO, W_vvvv, W_vVvV, W_VVVV) = (None,) * 24
+    r3 = compute_r3_tri_uhf(mycc, imds, t2, t3)
+    imds = None
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # divide by eijkabc
     r3_tri_divide_e_uhf_(mycc, r3, mo_energy)
@@ -2972,6 +3007,20 @@ def _make_empty_eris_ucc(mycc, mo_coeff=None):
 
     logger.timer(mycc, mycc.__class__.__name__ + ' integral transformation', *cput0)
     return eris
+
+class _IMDS:
+
+    def __init__(self):
+        self.t1_fock = None
+        self.t1_eris = None
+        self.F_oo, self.F_OO = None, None
+        self.F_vv, self.F_VV = None, None
+        self.W_oooo, self.W_oOoO, self.W_OOOO = None, None, None
+        self.W_ovoo, self.W_oVoO, self.W_OVOO = None, None, None
+        self.W_vOoO, self.W_oVoV, self.W_vOvO, self.W_vVoV = None, None, None, None
+        self.W_voov, self.W_vOoV, self.W_VoOv, self.W_VOOV = None, None, None, None
+        self.W_vvvo, self.W_vVvO, self.W_VVVO = None, None, None
+        self.W_vvvv, self.W_vVvV, self.W_VVVV = None, None, None
 
 
 if __name__ == "__main__":
