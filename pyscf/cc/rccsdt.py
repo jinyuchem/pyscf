@@ -776,14 +776,14 @@ def compute_r3_tri(mycc, imds, t2, t3):
     W_ovov = None
     time1 = log.timer_debug1('t3: W_ovov * t3', *time1)
 
-    t3_tmp = np.empty((blksize_oooo,) * 2 + (nocc,) + (nvir,) * 3, dtype=t3.dtype)
+    t3_tmp = np.empty((blksize_oovv,) * 2 + (nocc,) + (nvir,) * 3, dtype=t3.dtype)
     r3_tmp = np.empty((blksize_oooo,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     time2 = logger.process_clock(), logger.perf_counter()
-    for l0, l1 in lib.prange(0, nocc, blksize_oooo):
+    for l0, l1 in lib.prange(0, nocc, blksize_oovv):
         bl = l1 - l0
-        for m0, m1 in lib.prange(0, nocc, blksize_oooo):
+        for m0, m1 in lib.prange(0, nocc, blksize_oovv):
             bm = m1 - m0
-            _unpack_t3_(mycc, t3, t3_tmp, l0, l1, m0, m1, 0, nocc, blksize_oooo, blksize_oooo, nocc)
+            _unpack_t3_(mycc, t3, t3_tmp, l0, l1, m0, m1, 0, nocc, blksize_oovv, blksize_oovv, nocc)
             for k0, k1 in lib.prange(0, nocc, blksize_oooo):
                 bk = k1 - k0
                 for j0, j1 in lib.prange(0, k1, blksize_oooo):
@@ -1243,7 +1243,7 @@ def memory_estimate_log_rccsdt(mycc):
     log.info('    Intermediates memory    %8s', format_size(eris_memory))
 
     if mycc.do_tri_max_t:
-        blk_memory = mycc.blksize_oovv**2 * nocc * nvir**3 * 8
+        blk_memory = (mycc.blksize_oovv**2 * nocc * nvir**3 + mycc.blksize_oooo**3 * nvir**3) * 8
         log.info("    Block workspace         %8s", format_size(blk_memory))
 
     if mycc.einsum_backend in ['numpy', 'pyscf']:
@@ -1571,6 +1571,9 @@ if __name__ == "__main__":
     mycc.verbose = 5
     mycc.do_diis_max_t = True
     mycc.incore_complete = True
+    mycc.blksize = 3
+    mycc.blksize_oovv = 2
+    mycc.blksize_oooo = 3
     mycc.kernel()
     print("E_corr: % .10f    Ref: % .10f    Diff: % .10e"%(mycc.e_corr, ref_e_corr, mycc.e_corr - ref_e_corr))
     print('\n' * 5)
