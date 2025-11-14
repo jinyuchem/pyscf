@@ -1321,7 +1321,7 @@ void unpack_t4_tri2block_(const double *restrict t4_tri,
 #define MAP(sym, w, x, y, z) map[((((sym) * nocc + (w)) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 #define MASK(sym, w, x, y, z) mask[((((sym) * nocc + (w)) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 
-#pragma omp parallel for collapse(5) schedule(static)
+#pragma omp parallel for collapse(5) schedule(dynamic)
     for (int64_t sym = 0; sym < 24; ++sym)
     {
         for (int64_t i = i0; i < i1; ++i)
@@ -1411,7 +1411,7 @@ void accumulate_t4_block2tri_(double *restrict t4_tri,
     if (j1 < i0 || k1 < j0 || l1 < k0)
         return;
 
-#pragma omp parallel for collapse(4)
+#pragma omp parallel for collapse(4) schedule(dynamic)
     for (int64_t l = l0; l < l1; ++l)
     {
         for (int64_t k = k0; k < k1; ++k)

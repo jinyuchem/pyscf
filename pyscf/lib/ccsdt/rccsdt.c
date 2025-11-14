@@ -522,7 +522,7 @@ void unpack_t3_tri2block_(const double *restrict t3_tri,
 #define MAP(sym, x, y, z) map[(((sym) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 #define MASK(sym, x, y, z) mask[(((sym) * nocc + (x)) * nocc + (y)) * nocc + (z)]
 
-#pragma omp parallel for collapse(4) schedule(static)
+#pragma omp parallel for collapse(4) schedule(dynamic)
     for (int64_t sym = 0; sym < 6; ++sym)
     {
         for (int64_t i = i0; i < i1; ++i)
@@ -692,7 +692,7 @@ void unpack_t3_tri2block_pair_(const double *restrict t3_tri,
     const int64_t tmp_indices[6] = {5, 3, 4, 1, 2, 0};
     const int64_t trans_indices[6] = {1, 0, 3, 2, 5, 4};
 
-#pragma omp parallel for collapse(4) schedule(static)
+#pragma omp parallel for collapse(4) schedule(dynamic)
     for (int64_t sym = 0; sym < 6; ++sym)
     {
         for (int64_t i = i0; i < i1; ++i)
@@ -736,7 +736,7 @@ void unpack_t3_tri2block_pair_(const double *restrict t3_tri,
         }
     }
 
-#pragma omp parallel for collapse(4) schedule(static)
+#pragma omp parallel for collapse(4) schedule(dynamic)
     for (int64_t sym = 0; sym < 6; ++sym)
     {
         for (int64_t i = i0; i < i1; ++i)
@@ -817,7 +817,7 @@ void accumulate_t3_block2tri_(double *restrict t3_tri,
     if (j1 < i0 || k1 < j0)
         return;
 
-#pragma omp parallel for collapse(3)
+#pragma omp parallel for collapse(3) schedule(dynamic)
     for (int64_t k = k0; k < k1; ++k)
     {
         for (int64_t j = j0; j < j1; ++j)
@@ -874,7 +874,7 @@ void accumulate_t3_single2tri_(double *restrict t3_tri,
     int64_t p = MAP(0, i0, j0, k0);
     int64_t tri_base = p * nvir * nvir * nvir;
 
-#pragma omp parallel for collapse(3)
+#pragma omp parallel for collapse(3) schedule(static)
     for (int64_t a = 0; a < nvir; ++a)
     {
         for (int64_t b = 0; b < nvir; ++b)

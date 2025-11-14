@@ -134,24 +134,23 @@ def compute_r3(mycc, imds, t2, t3):
     t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
 
     r3 = np.empty_like(t3)
-    # R3: P0 & P1 & P2
     einsum('abdj,ikdc->ijkabc', W_vvvo, t2, out=r3, alpha=1.0, beta=0.0)
     einsum('alij,lkbc->ijkabc', W_vooo, t2, out=r3, alpha=-1.0, beta=1.0)
     einsum('ad,ijkdbc->ijkabc', F_vv, t3, out=r3, alpha=0.5, beta=1.0)
     time1 = log.timer_debug1('t3: W_vvvo * t2, W_vooo * t2, F_vv * t3', *time1)
-    # R3: P3 & P4
+
     einsum('li,ljkabc->ijkabc', F_oo, t3, out=r3, alpha=-0.5, beta=1.0)
     einsum('ladi,ljkdbc->ijkabc', W_ovvo, c_t3, out=r3, alpha=0.25, beta=1.0)
     c_t3 = None
     time1 = log.timer_debug1('t3: F_oo * t3, W_ovvo * t3', *time1)
-    # R3: P5 & P6
+
     einsum('laid,jlkdbc->ijkabc', W_ovov, t3, out=r3, alpha=-0.5, beta=1.0)
     einsum('lbid,jlkdac->ijkabc', W_ovov, t3, out=r3, alpha=-1.0, beta=1.0)
     time1 = log.timer_debug1('t3: W_ovov * t3', *time1)
-    # R3: P7
+
     einsum('lmij,lmkabc->ijkabc', W_oooo, t3, out=r3, alpha=0.5, beta=1.0)
     time1 = log.timer_debug1('t3: W_oooo * t3', *time1)
-    # R3: P8
+
     einsum('abde,ijkdec->ijkabc', W_vvvv, t3, out=r3, alpha=0.5, beta=1.0)
     time1 = log.timer_debug1('t3: W_vvvv * t3', *time1)
     return r3
@@ -185,7 +184,7 @@ def update_amps_rccsdt_(mycc, tamps, eris):
     r1, r2 = compute_r1r2(mycc, imds, t2)
     r1r2_add_t3_(mycc, imds, r1, r2, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
-    # symmetrize r2
+    # symmetrization
     r2 += r2.transpose(1, 0, 3, 2)
     time1 = log.timer_debug1('t1t2: symmetrize r2', *time1)
     # divide by eijkabc
@@ -206,7 +205,7 @@ def update_amps_rccsdt_(mycc, tamps, eris):
     r3 = compute_r3(mycc, imds, t2, t3)
     imds = None
     time1 = log.timer_debug1('t3: compute r3', *time1)
-    # symmetrize r3
+    # symmetrization
     t3_perm_symmetrize_inplace_(r3, nocc, nvir, 1.0, 0.0)
     t3_spin_summation_inplace_(r3, nocc**3, nvir, "P3_full", -1.0 / 6.0, 1.0)
     purify_tamps_(r3)

@@ -51,22 +51,21 @@ def r1r2_add_t3_uhf_(mycc, imds, r1, r2, t3):
     t3aaa, t3aab, t3bba, t3bbb = t3
 
     (r1a, r1b), (r2aa, r2ab, r2bb) = r1, r2
-    # r1a
     einsum('mnef,imnaef->ia', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t3aaa, out=r1a, alpha=0.25, beta=1.0)
     einsum('nmfe,inafme->ia', t1_erisab[:nocca, :noccb, nocca:, noccb:], t3aab, out=r1a, alpha=1.0, beta=1.0)
     einsum('mnef,mnefia->ia', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t3bba, out=r1a, alpha=0.25, beta=1.0)
-    # r1b
+
     einsum('mnef,imnaef->ia', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t3bbb, out=r1b, alpha=0.25, beta=1.0)
     einsum('mnef,inafme->ia', t1_erisab[:nocca, :noccb, nocca:, noccb:], t3bba, out=r1b, alpha=1.0, beta=1.0)
     einsum('mnef,mnefia->ia', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t3aab, out=r1b, alpha=0.25, beta=1.0)
-    # r2aa
+
     einsum("me,ijmabe->ijab", t1_focka[:nocca, nocca:], t3aaa, out=r2aa, alpha=0.25, beta=1.0)
     einsum("me,ijabme->ijab", t1_fockb[:noccb, noccb:], t3aab, out=r2aa, alpha=0.25, beta=1.0)
     einsum("bmef,ijmaef->ijab", t1_erisaa[nocca:, :nocca, nocca:, nocca:], t3aaa, out=r2aa, alpha=0.25, beta=1.0)
     einsum("bmef,ijaemf->ijab", t1_erisab[nocca:, :noccb, nocca:, noccb:], t3aab, out=r2aa, alpha=0.5, beta=1.0)
     einsum("mnje,imnabe->ijab", t1_erisaa[:nocca, :nocca, :nocca, nocca:], t3aaa, out=r2aa, alpha=-0.25, beta=1.0)
     einsum("mnje,imabne->ijab", t1_erisab[:nocca, :noccb, :nocca, noccb:], t3aab, out=r2aa, alpha=-0.5, beta=1.0)
-    # r2ab
+
     einsum("me,imaejb->iajb", t1_focka[:nocca, nocca:], t3aab, out=r2ab, alpha=1.0, beta=1.0)
     einsum("me,jmbeia->iajb", t1_fockb[:noccb, noccb:], t3bba, out=r2ab, alpha=1.0, beta=1.0)
     einsum("mbfe,imafje->iajb", t1_erisab[:nocca, noccb:, nocca:, noccb:], t3aab, out=r2ab, alpha=1.0, beta=1.0)
@@ -77,7 +76,7 @@ def r1r2_add_t3_uhf_(mycc, imds, r1, r2, t3):
     einsum("mnje,mnbeia->iajb", t1_erisbb[:noccb, :noccb, :noccb, noccb:], t3bba, out=r2ab, alpha=-0.5, beta=1.0)
     einsum("mnie,mnaejb->iajb", t1_erisaa[:nocca, :nocca, :nocca, nocca:], t3aab, out=r2ab, alpha=-0.5, beta=1.0)
     einsum("mnie,jnbema->iajb", t1_erisab[:nocca, :noccb, :nocca, noccb:], t3bba, out=r2ab, alpha=-1.0, beta=1.0)
-    # r2bb
+
     einsum("me,ijmabe->ijab", t1_fockb[:noccb, noccb:], t3bbb, out=r2bb, alpha=0.25, beta=1.0)
     einsum("me,ijabme->ijab", t1_focka[:nocca, nocca:], t3bba, out=r2bb, alpha=0.25, beta=1.0)
     einsum("bmef,ijmaef->ijab", t1_erisbb[noccb:, :noccb, noccb:, noccb:], t3bbb, out=r2bb, alpha=0.25, beta=1.0)
@@ -137,7 +136,6 @@ def compute_r3_uhf(mycc, imds, t2, t3):
     W_vvvo, W_vVvO, W_VVVO = imds.W_vvvo, imds.W_vVvO, imds.W_VVVO
     W_vvvv, W_vVvV, W_VVVV = imds.W_vvvv, imds.W_vVvV, imds.W_VVVV
 
-    # aaa
     r3aaa = np.empty_like(t3aaa)
     einsum("bcdk,ijad->ijkabc", W_vvvo, t2aa, out=r3aaa, alpha=0.25, beta=0.0)
     einsum("lcjk,ilab->ijkabc", W_ovoo, t2aa, out=r3aaa, alpha=-0.25, beta=1.0)
@@ -149,7 +147,6 @@ def compute_r3_uhf(mycc, imds, t2, t3):
     einsum("alid,jkbcld->ijkabc", W_vOoV, t3aab, out=r3aaa, alpha=0.25, beta=1.0)
     time1 = log.timer_debug1('t3: r3aaa', *time1)
 
-    # bbb
     r3bbb = np.empty_like(t3bbb)
     einsum("bcdk,ijad->ijkabc", W_VVVO, t2bb, out=r3bbb, alpha=0.25, beta=0.0)
     einsum("lcjk,ilab->ijkabc", W_OVOO, t2bb, out=r3bbb, alpha=-0.25, beta=1.0)
@@ -161,7 +158,6 @@ def compute_r3_uhf(mycc, imds, t2, t3):
     einsum("alid,jkbcld->ijkabc", W_VoOv, t3bba, out=r3bbb, alpha=0.25, beta=1.0)
     time1 = log.timer_debug1('t3: r3bbb', *time1)
 
-    # aab
     r3aab = np.empty_like(t3aab)
     einsum("bcdk,ijad->ijabkc", W_vVvO, t2aa, out=r3aab, alpha=0.5, beta=0.0)
     einsum("bcjd,iakd->ijabkc", W_vVoV, t2ab, out=r3aab, alpha=1.0, beta=1.0)
@@ -186,7 +182,6 @@ def compute_r3_uhf(mycc, imds, t2, t3):
     W_vvvo, W_ovoo, W_vvvv, W_oooo = (None,) * 4
     time1 = log.timer_debug1('t3: r3aab', *time1)
 
-    # bba
     r3bba = np.empty_like(t3bba)
     einsum("cbkd,ijad->ijabkc", W_vVoV, t2bb, out=r3bba, alpha=0.5, beta=0.0)
     einsum("cbdj,kdia->ijabkc", W_vVvO, t2ab, out=r3bba, alpha=1.0, beta=1.0)
@@ -274,7 +269,7 @@ def update_amps_uccsdt_(mycc, tamps, eris):
     r1, r2 = compute_r1r2_uhf(mycc, imds, t2)
     r1r2_add_t3_uhf_(mycc, imds, r1, r2, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
-    # antisymmetrize R2
+    # antisymmetrization
     antisymmetrize_r2_uhf_(r2)
     time1 = log.timer_debug1('t1t2: antisymmetrize r2', *time1)
     # divide by eijkabc
@@ -301,7 +296,7 @@ def update_amps_uccsdt_(mycc, tamps, eris):
     r3 = compute_r3_uhf(mycc, imds, t2, t3)
     imds = None
     time1 = log.timer_debug1('t3: compute r3', *time1)
-    # antisymmetrize r3
+    # antisymmetrization
     antisymmetrize_r3_uhf_(r3)
     time1 = log.timer_debug1('t3: antisymmetrize r3', *time1)
     # divide by eijkabc

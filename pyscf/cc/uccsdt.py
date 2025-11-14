@@ -544,7 +544,7 @@ def intermediates_t1t2_uhf(mycc, imds, t2):
     t1_focka, t1_fockb = imds.t1_fock
     t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
     t2aa, t2ab, t2bb = t2
-    # aa
+
     F_vv = t1_focka[nocca:, nocca:].copy()
     einsum('klcd,klbd->bc', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t2aa, out=F_vv, alpha=-0.5, beta=1.0)
     einsum('lkcd,lbkd->bc', t1_erisab[:nocca, :noccb, nocca:, noccb:], t2ab, out=F_vv, alpha=-1.0, beta=1.0)
@@ -559,7 +559,7 @@ def intermediates_t1t2_uhf(mycc, imds, t2):
     W_OvVo = t1_erisab[nocca:, :noccb, :nocca, noccb:].transpose(1, 0, 3, 2).copy()
     einsum('klcd,jbld->kbcj', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t2ab, out=W_OvVo, alpha=0.5, beta=1.0)
     einsum('lkdc,jlbd->kbcj', t1_erisab[:nocca, :noccb, nocca:, noccb:], t2aa, out=W_OvVo, alpha=0.5, beta=1.0)
-    # bb
+
     F_VV = t1_fockb[noccb:, noccb:].copy()
     einsum('klcd,klbd->bc', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t2bb, out=F_VV, alpha=-0.5, beta=1.0)
     einsum('kldc,kdlb->bc', t1_erisab[:nocca, :noccb, nocca:, noccb:], t2ab, out=F_VV, alpha=-1.0, beta=1.0)
@@ -574,7 +574,7 @@ def intermediates_t1t2_uhf(mycc, imds, t2):
     W_oVvO = t1_erisab[:nocca, noccb:, nocca:, :noccb].copy()
     einsum('klcd,ldjb->kbcj', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t2ab, out=W_oVvO, alpha=0.5, beta=1.0)
     einsum('klcd,jlbd->kbcj', t1_erisab[:nocca, :noccb, nocca:, noccb:], t2bb, out=W_oVvO, alpha=0.5, beta=1.0)
-    # ab
+
     W_oOoO = t1_erisab[:nocca, :noccb, :nocca, :noccb].copy()
     einsum('klcd,icjd->klij', t1_erisab[:nocca, :noccb, nocca:, noccb:], t2ab, out=W_oOoO, alpha=1.0, beta=1.0)
     W_vOvO = - t1_erisab[nocca:, :noccb, nocca:, :noccb]
@@ -845,7 +845,7 @@ def intermediates_t3_uhf(mycc, imds, t2):
     t1_focka, t1_fockb = imds.t1_fock
     t1_erisaa, t1_erisab, t1_erisbb = imds.t1_eris
     t2aa, t2ab, t2bb = t2
-    # aaa
+
     W_vvvv = t1_erisaa[nocca:, nocca:, nocca:, nocca:].copy()
     einsum('lmde,lmab->abde', t1_erisaa[:nocca, :nocca, nocca:, nocca:], t2aa, out=W_vvvv, alpha=0.5, beta=1.0)
     W_voov = t1_erisaa[nocca:, :nocca, :nocca, nocca:].copy()
@@ -863,7 +863,7 @@ def intermediates_t3_uhf(mycc, imds, t2):
     einsum('mldj,kmcd->lcjk', t1_erisaa[:nocca, :nocca, nocca:, :nocca], t2aa, out=W_ovoo, alpha=2.0, beta=1.0)
     einsum('lmjd,kcmd->lcjk', t1_erisab[:nocca, :noccb, :nocca, noccb:], t2ab, out=W_ovoo, alpha=2.0, beta=1.0)
     einsum('lcde,jkde->lcjk', t1_erisaa[:nocca, nocca:, nocca:, nocca:], t2aa, out=W_ovoo, alpha=0.5, beta=1.0)
-    # bbb
+
     W_VVVV = t1_erisbb[noccb:, noccb:, noccb:, noccb:].copy()
     einsum('lmde,lmab->abde', t1_erisbb[:noccb, :noccb, noccb:, noccb:], t2bb, out=W_VVVV, alpha=0.5, beta=1.0)
     W_VOOV = t1_erisbb[noccb:, :noccb, :noccb, noccb:].copy()
@@ -881,7 +881,7 @@ def intermediates_t3_uhf(mycc, imds, t2):
     einsum('mldj,kmcd->lcjk', t1_erisbb[:noccb, :noccb, noccb:, :noccb], t2bb, out=W_OVOO, alpha=2.0, beta=1.0)
     einsum('mldj,mdkc->lcjk', t1_erisab[:nocca, :noccb, nocca:, :noccb], t2ab, out=W_OVOO, alpha=2.0, beta=1.0)
     einsum('lcde,jkde->lcjk', t1_erisbb[:noccb, noccb:, noccb:, noccb:], t2bb, out=W_OVOO, alpha=0.5, beta=1.0)
-    # aab & bba
+
     W_vVvV = t1_erisab[nocca:, noccb:, nocca:, noccb:].copy()
     einsum('lmed,lbmc->bced', t1_erisab[:nocca, :noccb, nocca:, noccb:], t2ab, out=W_vVvV, alpha=1.0, beta=1.0)
     W_oVoV = t1_erisab[:nocca, noccb:, :nocca, noccb:].copy()
@@ -1050,7 +1050,6 @@ def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
     W_voov, W_vOoV = imds.W_voov, imds.W_vOoV
 
     r3aaa = np.zeros_like(t3aaa)
-    time2 = logger.process_clock(), logger.perf_counter()
 
     r3_tmp = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=t3aaa.dtype)
     t3_tmp = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=t3aaa.dtype)
@@ -1069,7 +1068,7 @@ def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
                             ba = a1 - a0
                             bijkabc = (slice(None, bi), slice(None, bj), slice(None, bk),
                                         slice(None, ba), slice(None, bb), slice(None, bc))
-                            # R3aaa: P0
+
                             einsum("bcdk,ijad->ijkabc", W_vvvo[b0:b1, c0:c1, :, k0:k1],
                                 t2aa[i0:i1, j0:j1, a0:a1, :], out=r3_tmp[bijkabc], alpha=0.5, beta=0.0)
                             einsum("cbdk,ijad->ijkabc", W_vvvo[c0:c1, b0:b1, :, k0:k1],
@@ -1106,7 +1105,7 @@ def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
                                 t2aa[j0:j1, k0:k1, b0:b1, :], out=r3_tmp[bijkabc], alpha=0.5, beta=1.0)
                             einsum("badi,jkcd->ijkabc", W_vvvo[b0:b1, a0:a1, :, i0:i1],
                                 t2aa[j0:j1, k0:k1, c0:c1, :], out=r3_tmp[bijkabc], alpha=-0.5, beta=1.0)
-                            # R3aaa: P1
+
                             einsum("lcjk,ilab->ijkabc", W_ovoo[:, c0:c1, j0:j1, k0:k1],
                                 t2aa[i0:i1, :, a0:a1, b0:b1], out=r3_tmp[bijkabc], alpha=-0.5, beta=1.0)
                             einsum("lbjk,ilac->ijkabc", W_ovoo[:, b0:b1, j0:j1, k0:k1],
@@ -1144,11 +1143,6 @@ def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
                             einsum("laji,klbc->ijkabc", W_ovoo[:, a0:a1, j0:j1, i0:i1],
                                 t2aa[k0:k1, :, b0:b1, c0:c1], out=r3_tmp[bijkabc], alpha=0.5, beta=1.0)
 
-                            time2 = log.timer_debug1('t3aaa: (vvvo + ovoo) * t2aa iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2,)
-
-                            # R3aaa: P2, P4
                             for d0, d1 in lib.prange(0, nvira, blksize_v_aaa):
                                 bd = d1 - d0
                                 _unp_aaa_(mycc, t3aaa, t3_tmp, i0, i1, j0, j1, k0, k1, a0, a1, b0, b1, d0, d1)
@@ -1172,11 +1166,6 @@ def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
                                     einsum("bcde,ijkdea->ijkabc", W_vvvv[b0:b1, c0:c1, d0:d1, e0:e1],
                                         t3_tmp[:bi, :bj, :bk, :bd, :be, :ba], out=r3_tmp[bijkabc], alpha=0.5, beta=1.0)
 
-                            time2 = log.timer_debug1('t3aaa: (vv + vvvv) * t3aaa iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
-                            # R3aaa: P3, P5
                             for l0, l1 in lib.prange(0, nocca, blksize_o_aaa):
                                 bl = l1 - l0
                                 _unp_aaa_(mycc, t3aaa, t3_tmp, i0, i1, j0, j1, l0, l1, a0, a1, b0, b1, c0, c1)
@@ -1200,11 +1189,6 @@ def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
                                     einsum("lmjk,lmiabc->ijkabc", W_oooo[l0:l1, m0:m1, j0:j1, k0:k1],
                                         t3_tmp[:bl, :bm, :bi, :ba, :bb, :bc], out=r3_tmp[bijkabc], alpha=0.5, beta=1.0)
 
-                            time2 = log.timer_debug1('t3aaa: (oo + oooo) * t3aaa iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
-                            # R3aaa: P6
                             for l0, l1 in lib.prange(0, nocca, blksize_o_aaa):
                                 bl = l1 - l0
                                 for d0, d1 in lib.prange(0, nvira, blksize_v_aaa):
@@ -1237,11 +1221,6 @@ def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
                                     einsum("clkd,lijdab->ijkabc", W_voov[c0:c1, l0:l1, k0:k1, d0:d1],
                                         t3_tmp[:bl, :bi, :bj, :bd, :ba, :bb], out=r3_tmp[bijkabc], alpha=1.0, beta=1.0)
 
-                            time2 = log.timer_debug1('t3aaa: voov * t3aaa iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
-                            # R3aaa: P7
                             _unp_aab_(mycc, t3aab, t3_tmp_2, j0, j1, k0, k1, b0, b1, c0, c1,
                                 blk_i=blksize_o_aaa, blk_j=blksize_o_aaa, blk_a=blksize_v_aaa, blk_b=blksize_v_aaa)
                             einsum("alid,jkbcld->ijkabc", W_vOoV[a0:a1, :, i0:i1, :],
@@ -1279,10 +1258,6 @@ def compute_r3aaa_tri_uhf(mycc, imds, t2, t3):
                             einsum("clkd,ijabld->ijkabc", W_vOoV[c0:c1, :, k0:k1, :],
                                 t3_tmp_2[:bi, :bj, :ba, :bb, :, :], out=r3_tmp[bijkabc], alpha=1.0, beta=1.0)
 
-                            time2 = log.timer_debug1('t3aaa: vOoV * t3aab iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
                             _update_packed_aaa_(mycc, r3aaa, r3_tmp, i0, i1, j0, j1, k0, k1,
                                 a0, a1, b0, b1, c0, c1, alpha=1.0, beta=0.0)
     r3_tmp = None
@@ -1310,7 +1285,6 @@ def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
     W_VoOv, W_VOOV = imds.W_VoOv, imds.W_VOOV
 
     r3bbb = np.zeros_like(t3bbb)
-    time2 = logger.process_clock(), logger.perf_counter()
 
     r3_tmp = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=t3bbb.dtype)
     t3_tmp = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=t3bbb.dtype)
@@ -1329,7 +1303,7 @@ def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
                             ba = a1 - a0
                             bijkabc = (slice(None, bi), slice(None, bj), slice(None, bk),
                                         slice(None, ba), slice(None, bb), slice(None, bc))
-                            # R3bbb: P0
+
                             einsum("bcdk,ijad->ijkabc", W_VVVO[b0:b1, c0:c1, :, k0:k1],
                                 t2bb[i0:i1, j0:j1, a0:a1, :], out=r3_tmp[bijkabc], alpha=0.5, beta=0.0)
                             einsum("cbdk,ijad->ijkabc", W_VVVO[c0:c1, b0:b1, :, k0:k1],
@@ -1366,7 +1340,7 @@ def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
                                 t2bb[j0:j1, k0:k1, b0:b1, :], out=r3_tmp[bijkabc], alpha=0.5, beta=1.0)
                             einsum("badi,jkcd->ijkabc", W_VVVO[b0:b1, a0:a1, :, i0:i1],
                                 t2bb[j0:j1, k0:k1, c0:c1, :], out=r3_tmp[bijkabc], alpha=-0.5, beta=1.0)
-                            # R3bbb: P1
+
                             einsum("lcjk,ilab->ijkabc", W_OVOO[:, c0:c1, j0:j1, k0:k1],
                                 t2bb[i0:i1, :, a0:a1, b0:b1], out=r3_tmp[bijkabc], alpha=-0.5, beta=1.0)
                             einsum("lbjk,ilac->ijkabc", W_OVOO[:, b0:b1, j0:j1, k0:k1],
@@ -1404,11 +1378,6 @@ def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
                             einsum("laji,klbc->ijkabc", W_OVOO[:, a0:a1, j0:j1, i0:i1],
                                 t2bb[k0:k1, :, b0:b1, c0:c1], out=r3_tmp[bijkabc], alpha=0.5, beta=1.0)
 
-                            time2 = log.timer_debug1('t3bbb: (VVVO + OVOO) * t2bb iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
-                            # R3bbb: P2, P4
                             for d0, d1 in lib.prange(0, nvirb, blksize_v_aaa):
                                 bd = d1 - d0
                                 _unp_bbb_(mycc, t3bbb, t3_tmp, i0, i1, j0, j1, k0, k1, a0, a1, b0, b1, d0, d1)
@@ -1432,11 +1401,6 @@ def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
                                     einsum("bcde,ijkdea->ijkabc", W_VVVV[b0:b1, c0:c1, d0:d1, e0:e1],
                                         t3_tmp[:bi, :bj, :bk, :bd, :be, :ba], out=r3_tmp[bijkabc], alpha=0.5, beta=1.0)
 
-                            time2 = log.timer_debug1('t3bbb: (VV + VVVV) * t3bbb iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
-                            # R3bbb: P3, P5
                             for l0, l1 in lib.prange(0, noccb, blksize_o_aaa):
                                 bl = l1 - l0
                                 _unp_bbb_(mycc, t3bbb, t3_tmp, i0, i1, j0, j1, l0, l1, a0, a1, b0, b1, c0, c1)
@@ -1460,11 +1424,6 @@ def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
                                     einsum("lmjk,lmiabc->ijkabc", W_OOOO[l0:l1, m0:m1, j0:j1, k0:k1],
                                         t3_tmp[:bl, :bm, :bi, :ba, :bb, :bc], out=r3_tmp[bijkabc], alpha=0.5, beta=1.0)
 
-                            time2 = log.timer_debug1('t3bbb: (OO + OOOO) * t3bbb iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
-                            # R3bbb: P6
                             for l0, l1 in lib.prange(0, noccb, blksize_o_aaa):
                                 bl = l1 - l0
                                 for d0, d1 in lib.prange(0, nvirb, blksize_v_aaa):
@@ -1497,11 +1456,6 @@ def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
                                     einsum("clkd,lijdab->ijkabc", W_VOOV[c0:c1, l0:l1, k0:k1, d0:d1],
                                         t3_tmp[:bl, :bi, :bj, :bd, :ba, :bb], out=r3_tmp[bijkabc], alpha=1.0, beta=1.0)
 
-                            time2 = log.timer_debug1('t3bbb: VOOV * t3bbb iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
-                            # R3bbb: P7
                             _unp_bba_(mycc, t3bba, t3_tmp_2, j0, j1, k0, k1, b0, b1, c0, c1,
                                 blk_i=blksize_o_aaa, blk_j=blksize_o_aaa, blk_a=blksize_v_aaa, blk_b=blksize_v_aaa)
                             einsum("alid,jkbcld->ijkabc", W_VoOv[a0:a1, :, i0:i1, :],
@@ -1539,10 +1493,6 @@ def compute_r3bbb_tri_uhf(mycc, imds, t2, t3):
                             einsum("clkd,ijabld->ijkabc", W_VoOv[c0:c1, :, k0:k1, :],
                                 t3_tmp_2[:bi, :bj, :ba, :bb], out=r3_tmp[bijkabc], alpha=1.0, beta=1.0)
 
-                            time2 = log.timer_debug1('t3bbb: VoOv * t3bba iter: '
-                                '[%2d, %2d] [%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d] [%3d, %3d]:' % (
-                                    k0, k1, j0, j1, i0, i1, c0, c1, b0, b1, a0, a1), *time2)
-
                             _update_packed_bbb_(mycc, r3bbb, r3_tmp, i0, i1, j0, j1, k0, k1,
                                                 a0, a1, b0, b1, c0, c1, alpha=1.0, beta=0.0)
     r3_tmp = None
@@ -1572,7 +1522,6 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
     W_vvvo, W_vVvO, W_vvvv, W_vVvV = imds.W_vvvo, imds.W_vVvO, imds.W_vvvv, imds.W_vVvV
 
     r3aab = np.zeros_like(t3aab)
-    time2 = logger.process_clock(), logger.perf_counter()
 
     r3_tmp = np.empty((blksize_o_aab,) * 2 + (blksize_v_aab,) * 2 + (noccb,) + (nvirb,), dtype=t3aaa.dtype)
     t3_tmp = np.empty((blksize_o_aab,) * 2 + (blksize_v_aab,) * 2 + (noccb,) + (nvirb,), dtype=t3aaa.dtype)
@@ -1587,21 +1536,17 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                 bb = b1 - b0
                 for a0, a1 in lib.prange(0, b1 - 1, blksize_v_aab):
                     ba = a1 - a0
-                    # R3aab: P0
+
                     einsum("bcdk,ijad->ijabkc", W_vVvO[b0:b1], t2aa[i0:i1, j0:j1, a0:a1, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=0.0)
                     einsum("acdk,ijbd->ijabkc", W_vVvO[a0:a1], t2aa[i0:i1, j0:j1, b0:b1, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
-                    # R3aab: P3
+
                     einsum("lcjk,ilab->ijabkc", W_oVoO[:, :, j0:j1, :], t2aa[i0:i1, :, a0:a1, b0:b1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
                     einsum("lcik,jlab->ijabkc", W_oVoO[:, :, i0:i1, :], t2aa[j0:j1, :, a0:a1, b0:b1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: (vVvO + oVoO) * t2aa iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P1
                     einsum("bcjd,iakd->ijabkc", W_vVoV[b0:b1, :, j0:j1, :], t2ab[i0:i1, a0:a1, :, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
                     einsum("acjd,ibkd->ijabkc", W_vVoV[a0:a1, :, j0:j1, :], t2ab[i0:i1, b0:b1, :, :],
@@ -1610,7 +1555,7 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
                     einsum("acid,jbkd->ijabkc", W_vVoV[a0:a1, :, i0:i1, :], t2ab[j0:j1, b0:b1, :, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
-                    # R3aab: P2
+
                     einsum("abdi,jdkc->ijabkc", W_vvvo[a0:a1, b0:b1, :, i0:i1], t2ab[j0:j1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-0.5, beta=1.0)
                     einsum("badi,jdkc->ijabkc", W_vvvo[b0:b1, a0:a1, :, i0:i1], t2ab[j0:j1],
@@ -1619,7 +1564,7 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
                     einsum("badj,idkc->ijabkc", W_vvvo[b0:b1, a0:a1, :, j0:j1], t2ab[i0:i1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-0.5, beta=1.0)
-                    # R3aab: P4
+
                     einsum("aljk,iblc->ijabkc", W_vOoO[a0:a1, :, j0:j1, :], t2ab[i0:i1, b0:b1, :, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
                     einsum("bljk,ialc->ijabkc", W_vOoO[b0:b1, :, j0:j1, :], t2ab[i0:i1, a0:a1, :, :],
@@ -1628,7 +1573,7 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
                     einsum("blik,jalc->ijabkc", W_vOoO[b0:b1, :, i0:i1, :], t2ab[j0:j1, a0:a1, :, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
-                    # R3aab: P5
+
                     einsum("laij,lbkc->ijabkc", W_ovoo[:, a0:a1, i0:i1, j0:j1], t2ab[:, b0:b1, :, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
                     einsum("lbij,lakc->ijabkc", W_ovoo[:, b0:b1, i0:i1, j0:j1], t2ab[:, a0:a1, :, :],
@@ -1638,10 +1583,6 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                     einsum("lbji,lakc->ijabkc", W_ovoo[:, b0:b1, j0:j1, i0:i1], t2ab[:, a0:a1, :, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: (vVoV + vvvo + vOoO + ovoo) * t2ab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P6 & P8 & P19
                     _unp_aab_(mycc, t3aab, t3_tmp, i0, i1, j0, j1, a0, a1, b0, b1)
                     einsum("cd,ijabkd->ijabkc", F_VV, t3_tmp[:bi, :bj, :ba, :bb],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
@@ -1650,10 +1591,6 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                     einsum("clkd,ijabld->ijabkc", W_VOOV, t3_tmp[:bi, :bj, :ba, :bb],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: (VV + OO + VOOV) * t3aab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P7 & P11 & P17
                     for d0, d1 in lib.prange(0, nvira, blksize_v_aab):
                         bd = d1 - d0
                         _unp_aab_(mycc, t3aab, t3_tmp, i0, i1, j0, j1, b0, b1, d0, d1)
@@ -1671,10 +1608,6 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                         einsum("bldk,ijadlc->ijabkc", W_vOvO[b0:b1, :, d0:d1, :],
                             t3_tmp[:bi, :bj, :ba, :bd], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: (vv + vVvV + vOvO) * t3aab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P9 & P13 & P16
                     for l0, l1 in lib.prange(0, nocca, blksize_o_aab):
                         bl = l1 - l0
                         _unp_aab_(mycc, t3aab, t3_tmp, j0, j1, l0, l1, a0, a1, b0, b1)
@@ -1692,10 +1625,6 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                         einsum("lcjd,ilabkd->ijabkc", W_oVoV[l0:l1, :, j0:j1, :],
                             t3_tmp[:bi, :bl, :ba, :bb], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: (oo + oOoO + oVoV) * t3aab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P10
                     for d0, d1 in lib.prange(0, nvira, blksize_v_aab):
                         bd = d1 - d0
                         for e0, e1 in lib.prange(0, nvira, blksize_v_aab):
@@ -1704,10 +1633,6 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                             einsum("abde,ijdekc->ijabkc", W_vvvv[a0:a1, b0:b1, d0:d1, e0:e1],
                                 t3_tmp[:bi, :bj, :bd, :be], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: vvvv * t3aab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P12
                     for l0, l1 in lib.prange(0, nocca, blksize_o_aab):
                         bl = l1 - l0
                         for m0, m1 in lib.prange(0, nocca, blksize_o_aab):
@@ -1716,10 +1641,6 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                             einsum("lmij,lmabkc->ijabkc", W_oooo[l0:l1, m0:m1, i0:i1, j0:j1],
                                 t3_tmp[:bl, :bm, :ba, :bb], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: oooo * t3aab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P14
                     for l0, l1 in lib.prange(0, nocca, blksize_o_aab):
                         bl = l1 - l0
                         for d0, d1 in lib.prange(0, nvira, blksize_v_aab):
@@ -1737,10 +1658,6 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                             einsum("bljd,lidakc->ijabkc", W_voov[b0:b1, l0:l1, j0:j1, d0:d1],
                                 t3_tmp[:bl, :bi, :bd, :ba], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: voov * t3aab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P15
                     # TODO: This unpacking performs redundant work; optimize to avoid repeated operations
                     for l0, l1 in lib.prange(0, noccb, blksize_o_aab):
                         bl = l1 - l0
@@ -1761,18 +1678,11 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
                                 t3_tmp_2[:bl, :, :bd, :, i0:i1, a0:a1],
                                 out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3aab: vOoV * t3bba iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3aab: P18
                     _unp_aaa_(mycc, t3aaa, t3_tmp_3, i0, i1, j0, j1, 0, nocca, a0, a1, b0, b1, 0, nvira,
                             blk_i=blksize_o_aab, blk_j=blksize_o_aab, blk_k=nocca,
                             blk_a=blksize_v_aab, blk_b=blksize_v_aab, blk_c=nvira)
                     einsum("clkd,ijlabd->ijabkc", W_VoOv, t3_tmp_3[:bi, :bj, :, :ba, :bb, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
-
-                    time2 = log.timer_debug1('t3aab: VoOv * t3aaa iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
 
                     _update_packed_aab_(mycc, r3aab, r3_tmp, i0, i1, j0, j1, a0, a1, b0, b1)
     r3_tmp = None
@@ -1804,7 +1714,6 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
     W_vVvO, W_VVVO, W_vVvV, W_VVVV = imds.W_vVvO, imds.W_VVVO, imds.W_vVvV, imds.W_VVVV
 
     r3bba = np.zeros_like(t3bba)
-    time2 = logger.process_clock(), logger.perf_counter()
 
     r3_tmp = np.empty((blksize_o_aab,) * 2 + (blksize_v_aab,) * 2 + (nocca,) + (nvira,), dtype=t3bbb.dtype)
     t3_tmp = np.empty((blksize_o_aab,) * 2 + (blksize_v_aab,) * 2 + (nocca,) + (nvira,), dtype=t3bbb.dtype)
@@ -1819,21 +1728,17 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                 bb = b1 - b0
                 for a0, a1 in lib.prange(0, b1 - 1, blksize_v_aab):
                     ba = a1 - a0
-                    # R3bba: P0
+
                     einsum("cbkd,ijad->ijabkc", W_vVoV[:, b0:b1], t2bb[i0:i1, j0:j1, a0:a1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=0.0)
                     einsum("cakd,ijbd->ijabkc", W_vVoV[:, a0:a1], t2bb[i0:i1, j0:j1, b0:b1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
-                    # R3bba: P3
+
                     einsum("clkj,ilab->ijabkc", W_vOoO[..., j0:j1], t2bb[i0:i1, :, a0:a1, b0:b1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
                     einsum("clki,jlab->ijabkc", W_vOoO[..., i0:i1], t2bb[j0:j1, :, a0:a1, b0:b1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: (vVoV + vOoO) * t2bb iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P1
                     einsum("cbdj,kdia->ijabkc", W_vVvO[:, b0:b1, :, j0:j1], t2ab[:, :, i0:i1, a0:a1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
                     einsum("cadj,kdib->ijabkc", W_vVvO[:, a0:a1, :, j0:j1], t2ab[:, :, i0:i1, b0:b1],
@@ -1842,7 +1747,7 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
                     einsum("cadi,kdjb->ijabkc", W_vVvO[:, a0:a1, :, i0:i1], t2ab[:, :, j0:j1, b0:b1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
-                    # R3bba: P2
+
                     einsum("abdi,kcjd->ijabkc", W_VVVO[a0:a1, b0:b1, :, i0:i1], t2ab[:, :, j0:j1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-0.5, beta=1.0)
                     einsum("badi,kcjd->ijabkc", W_VVVO[b0:b1, a0:a1, :, i0:i1], t2ab[:, :, j0:j1],
@@ -1851,7 +1756,7 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
                     einsum("badj,kcid->ijabkc", W_VVVO[b0:b1, a0:a1, :, j0:j1], t2ab[:, :, i0:i1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-0.5, beta=1.0)
-                    # R3bba: P4
+
                     einsum("lakj,lcib->ijabkc", W_oVoO[:, a0:a1, :, j0:j1], t2ab[:, :, i0:i1, b0:b1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
                     einsum("lbkj,lcia->ijabkc", W_oVoO[:, b0:b1, :, j0:j1], t2ab[:, :, i0:i1, a0:a1],
@@ -1860,7 +1765,7 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
                     einsum("lbki,lcja->ijabkc", W_oVoO[:, b0:b1, :, i0:i1], t2ab[:, :, j0:j1, a0:a1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
-                    # R3bba: P5
+
                     einsum("laij,kclb->ijabkc", W_OVOO[:, a0:a1, i0:i1, j0:j1], t2ab[..., b0:b1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
                     einsum("lbij,kcla->ijabkc", W_OVOO[:, b0:b1, i0:i1, j0:j1], t2ab[..., a0:a1],
@@ -1870,10 +1775,6 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                     einsum("lbji,kcla->ijabkc", W_OVOO[:, b0:b1, j0:j1, i0:i1], t2ab[..., a0:a1],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: (vVvO + VVVO + oVoO + OVOO) * t2ab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P6 & P8 & P19
                     _unp_bba_(mycc, t3bba, t3_tmp, i0, i1, j0, j1, a0, a1, b0, b1)
                     einsum("cd,ijabkd->ijabkc", F_vv, t3_tmp[:bi, :bj, :ba, :bb],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
@@ -1882,10 +1783,6 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                     einsum("clkd,ijabld->ijabkc", W_voov, t3_tmp[:bi, :bj, :ba, :bb],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: (vv + oo + voov) * t3bba iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P7 & P11 & P17
                     for d0, d1 in lib.prange(0, nvirb, blksize_v_aab):
                         bd = d1 - d0
                         _unp_bba_(mycc, t3bba, t3_tmp, i0, i1, j0, j1, b0, b1, d0, d1)
@@ -1903,10 +1800,6 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                         einsum("lbkd,ijadlc->ijabkc", W_oVoV[:, b0:b1, :, d0:d1],
                             t3_tmp[:bi, :bj, :ba, :bd], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=-1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: (VV + vVvV + oVoV) * t3bba iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P9 & P13 & P16
                     for l0, l1 in lib.prange(0, noccb, blksize_o_aab):
                         bl = l1 - l0
                         _unp_bba_(mycc, t3bba, t3_tmp, l0, l1, j0, j1, a0, a1, b0, b1)
@@ -1924,10 +1817,6 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                         einsum("cldj,liabkd->ijabkc", W_vOvO[:, l0:l1, :, j0:j1],
                             t3_tmp[:bl, :bi, :ba, :bb], out=r3_tmp[:bi, :bj, :ba, :bb, :, :], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: (oo + oOoO + vOvO) * t3bba iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P10
                     for d0, d1 in lib.prange(0, nvirb, blksize_v_aab):
                         bd = d1 - d0
                         for e0, e1 in lib.prange(0, nvirb, blksize_v_aab):
@@ -1936,10 +1825,6 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                             einsum("abde,ijdekc->ijabkc", W_VVVV[a0:a1, b0:b1, d0:d1, e0:e1],
                                 t3_tmp[:bi, :bj, :bd, :be], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: VVVV * t3bba iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P12
                     for l0, l1 in lib.prange(0, noccb, blksize_o_aab):
                         bl = l1 - l0
                         for m0, m1 in lib.prange(0, noccb, blksize_o_aab):
@@ -1948,10 +1833,6 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                             einsum("lmij,lmabkc->ijabkc", W_OOOO[l0:l1, m0:m1, i0:i1, j0:j1],
                                 t3_tmp[:bl, :bm, :ba, :bb], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=0.5, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: OOOO * t3bba iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P14
                     for l0, l1 in lib.prange(0, noccb, blksize_o_aab):
                         bl = l1 - l0
                         for d0, d1 in lib.prange(0, nvirb, blksize_v_aab):
@@ -1969,10 +1850,6 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                             einsum("bljd,lidakc->ijabkc", W_VOOV[b0:b1, l0:l1, j0:j1, d0:d1],
                                 t3_tmp[:bl, :bi, :bd, :ba], out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: VOOV * t3bba iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P15
                     # TODO: This unpacking performs redundant work; optimize to avoid repeated operations
                     for l0, l1 in lib.prange(0, nocca, blksize_o_aab):
                         bl = l1 - l0
@@ -1993,18 +1870,11 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
                                 t3_tmp_2[:bl, :, :bd, :, i0:i1, a0:a1],
                                 out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
 
-                    time2 = log.timer_debug1('t3bba: VoOv * t3aab iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
-
-                    # R3bba: P18
                     _unp_bbb_(mycc, t3bbb, t3_tmp_3, i0, i1, j0, j1, 0, noccb, a0, a1, b0, b1, 0, nvirb,
                         blk_i=blksize_o_aab, blk_j=blksize_o_aab, blk_k=noccb,
                         blk_a=blksize_v_aab, blk_b=blksize_v_aab, blk_c=nvirb)
                     einsum("clkd,ijlabd->ijabkc", W_vOoV, t3_tmp_3[:bi, :bj, :, :ba, :bb, :],
                         out=r3_tmp[:bi, :bj, :ba, :bb], alpha=1.0, beta=1.0)
-
-                    time2 = log.timer_debug1('t3bba: vOoV * t3bbb iter: '
-                        '[%2d, %2d] [%2d, %2d] [%3d, %3d] [%3d, %3d]:' % (j0, j1, i0, i1, b0, b1, a0, a1), *time2)
 
                     _update_packed_bba_(mycc, r3bba, r3_tmp, i0, i1, j0, j1, a0, a1, b0, b1)
     r3_tmp = None
@@ -2038,7 +1908,6 @@ def r3_tri_divide_e_uhf_(mycc, r3, mo_energy):
 
     r3aaa, r3aab, r3bba, r3bbb = r3
 
-    # aaa
     r3_tmp = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=r3aaa.dtype)
     eijkabc_blk = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=r3aaa.dtype)
     for k0, k1 in lib.prange(0, nocca, blksize_o_aaa):
@@ -2063,7 +1932,6 @@ def r3_tri_divide_e_uhf_(mycc, r3, mo_energy):
     r3_tmp = None
     eijkabc_blk = None
 
-    # bbb
     r3_tmp = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=r3aaa.dtype)
     eijkabc_blk = np.empty((blksize_o_aaa,) * 3 + (blksize_v_aaa,) * 3, dtype=r3aaa.dtype)
     for k0, k1 in lib.prange(0, noccb, blksize_o_aaa):
@@ -2088,7 +1956,6 @@ def r3_tri_divide_e_uhf_(mycc, r3, mo_energy):
     r3_tmp = None
     eijkabc_blk = None
 
-    # aab
     r3_tmp = np.empty((blksize_o_aab,) * 2 + (blksize_v_aab,) * 2 + (noccb,) + (nvirb,), dtype=r3aaa.dtype)
     eijkabc_blk = np.empty((blksize_o_aab,) * 2 + (blksize_v_aab,) * 2 + (noccb,) + (nvirb,), dtype=r3aaa.dtype)
     for j0, j1 in lib.prange(0, nocca, blksize_o_aab):
@@ -2107,7 +1974,6 @@ def r3_tri_divide_e_uhf_(mycc, r3, mo_energy):
     r3_tmp = None
     eijkabc_blk = None
 
-    # bba
     r3_tmp = np.empty((blksize_o_aab,) * 2 + (blksize_v_aab,) * 2 + (nocca,) + (nvira,), dtype=r3aaa.dtype)
     eijkabc_blk = np.empty((blksize_o_aab,) * 2 + (blksize_v_aab,) * 2 + (nocca,) + (nvira,), dtype=r3aaa.dtype)
     for j0, j1 in lib.prange(0, noccb, blksize_o_aab):
@@ -2149,7 +2015,7 @@ def update_amps_uccsdt_tri_(mycc, tamps, eris):
     r1, r2 = compute_r1r2_uhf(mycc, imds, t2)
     r1r2_add_t3_tri_uhf_(mycc, imds, r1, r2, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
-    # antisymmetrize R2
+    # antisymmetrization
     antisymmetrize_r2_uhf_(r2)
     time1 = log.timer_debug1('t1t2: antisymmetrize r2', *time1)
     # divide by eijkabc
@@ -2592,19 +2458,19 @@ def tamps_tri2full_uhf(mycc, tamps_tri):
     nocca, noccb = mycc.nocc
     nmoa, nmob = mycc.nmo
     nvira, nvirb = nmoa - nocca, nmob - noccb
-    # t3aaa
+
     t3aaa_full = np.zeros((nocca,) * 3 + (nvira,) * 3, dtype=tamps_tri[0].dtype)
     _unp_aaa_(mycc, tamps_tri[0], t3aaa_full, 0, nocca, 0, nocca, 0, nocca, 0, nvira, 0, nvira, 0, nvira,
                 blk_i=nocca, blk_j=nocca, blk_k=nocca, blk_a=nvira, blk_b=nvira, blk_c=nvira)
-    # t3aab
+
     t3aab_full = np.zeros((nocca,) * 2 + (nvira,) * 2 + (noccb,) + (nvirb,), dtype=tamps_tri[1].dtype)
     _unp_aab_(mycc, tamps_tri[1], t3aab_full, 0, nocca, 0, nocca, 0, nvira, 0, nvira,
                 blk_i=nocca, blk_j=nocca, blk_a=nvira, blk_b=nvira, dim4=noccb, dim5=nvirb)
-    # t3bba
+
     t3bba_full = np.zeros((noccb,) * 2 + (nvirb,) * 2 + (nocca,) + (nvira,), dtype=tamps_tri[2].dtype)
     _unp_bba_(mycc, tamps_tri[2], t3bba_full, 0, noccb, 0, noccb, 0, nvirb, 0, nvirb,
                 blk_i=noccb, blk_j=noccb, blk_a=nvirb, blk_b=nvirb, dim4=nocca, dim5=nvira)
-    # t3bbb
+
     t3bbb_full = np.zeros((noccb,) * 3 + (nvirb,) * 3, dtype=tamps_tri[3].dtype)
     _unp_bbb_(mycc, tamps_tri[3], t3bbb_full, 0, noccb, 0, noccb, 0, noccb, 0, nvirb, 0, nvirb, 0, nvirb,
                 blk_i=noccb, blk_j=noccb, blk_k=noccb, blk_a=nvirb, blk_b=nvirb, blk_c=nvirb)

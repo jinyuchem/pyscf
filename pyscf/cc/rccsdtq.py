@@ -174,13 +174,10 @@ def r3_add_t4_tri_(mycc, imds, r3, t4):
                     bk = k1 - k0
                     _unpack_t4_(mycc, t4, t4_tmp, m0, m1, i0, i1, j0, j1, k0, k1)
                     t4_spin_summation_inplace_(t4_tmp, blksize**4, nvir, "P4_201", 1.0, 0.0)
-                    # R3: P9
                     einsum('me,mijkeabc->ijkabc', t1_fock[m0:m1, nocc:], t4_tmp[:bm, :bi, :bj, :bk],
                             out=r3[i0:i1, j0:j1, k0:k1, ...], alpha=1.0 / 6.0, beta=1.0)
-                    # R3: P10
                     einsum('amef,mijkfebc->ijkabc', t1_eris[nocc:, m0:m1, nocc:, nocc:],
                         t4_tmp[:bm, :bi, :bj, :bk], out=r3[i0:i1, j0:j1, k0:k1, ...], alpha=0.5, beta=1.0)
-                    # R3: P11
                     einsum('mjen,mijkeabc->inkabc', t1_eris[m0:m1, j0:j1, nocc:, :nocc],
                         t4_tmp[:bm, :bi, :bj, :bk], out=r3[i0:i1, :, k0:k1, ...], alpha=-0.5, beta=1.0)
     t4_tmp = None
@@ -224,14 +221,12 @@ def intermediates_t4_tri(mycc, imds, t2, t3, t4):
 
     W_vvoooo = np.empty((nvir,) * 2 + (nocc,) * 4)
     einsum('amef,ijkebf->abmijk', t1_eris[nocc:, :nocc, nocc:, nocc:], t3, out=W_vvoooo, alpha=1.0, beta=0.0)
-    # TODO: Derive an alternative expression for this term
     tmp_ovvo = t1_eris[:nocc, nocc:, nocc:, :nocc].copy()
     c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
     einsum('nmfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=tmp_ovvo, alpha=1.0, beta=1.0)
     einsum('mnfe,nifa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], c_t2, out=tmp_ovvo, alpha=-0.5, beta=1.0)
     c_t2 = None
     einsum('nmef,infa->maei', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=tmp_ovvo, alpha=-0.5, beta=1.0)
-    #
     einsum('maei,jkbe->abmijk', tmp_ovvo, t2, out=W_vvoooo, alpha=1.0, beta=1.0)
     tmp_ovvo = None
     einsum('make,jibe->abmijk', W_ovov, t2, out=W_vvoooo, alpha=1.0, beta=1.0)
@@ -300,7 +295,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                 for i0, i1 in lib.prange(0, j1, blksize):
                     bi = i1 - i0
 
-                    # R4: P0 (o4v5 * 12)
                     einsum("abej,iklecd->ijklabcd", W_vvvo[..., j0:j1], t3[i0:i1, k0:k1, l0:l1],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=0.0)
                     einsum("acek,ijlebd->ijklabcd", W_vvvo[..., k0:k1], t3[i0:i1, j0:j1, l0:l1],
@@ -326,7 +320,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("dcek,lijeab->ijklabcd", W_vvvo[..., k0:k1], t3[l0:l1, i0:i1, j0:j1],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
-                    # R4: P1 (o5v4 * 12)
                     einsum("amij,mklbcd->ijklabcd", W_vooo[:, :, i0:i1, j0:j1],
                         t3[:, k0:k1, l0:l1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
                     einsum("amik,mjlcbd->ijklabcd", W_vooo[:, :, i0:i1, k0:k1],
@@ -352,7 +345,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("dmlk,mijcab->ijklabcd", W_vooo[:, :, l0:l1, k0:k1],
                         t3[:, i0:i1, j0:j1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
 
-                    # R4: P9 (o5v5 * 12)
                     einsum("mabeij,mklecd->ijklabcd", W_ovvvoo[..., i0:i1, j0:j1],
                         c_t3[:, k0:k1, l0:l1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=0.25, beta=1.0)
                     einsum("maceik,mjlebd->ijklabcd", W_ovvvoo[..., i0:i1, k0:k1],
@@ -378,7 +370,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("mdcelk,mijeab->ijklabcd", W_ovvvoo[..., l0:l1, k0:k1],
                         c_t3[:, i0:i1, j0:j1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=0.25, beta=1.0)
 
-                    # R4: P10 (o5v5 * 24)
                     einsum("mabiej,mklced->ijklabcd", W_ovvovo[..., i0:i1, :, j0:j1],
                         t3[:, k0:k1, l0:l1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
                     einsum("mabiej,mlkdec->ijklabcd", W_ovvovo[..., i0:i1, :, j0:j1],
@@ -428,7 +419,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("mdclek,mjibea->ijklabcd", W_ovvovo[..., l0:l1, :, k0:k1],
                         t3[:, j0:j1, i0:i1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
 
-                    # R4: P11 (o5v5 * 24)
                     einsum("mcbiej,mklaed->ijklabcd", W_ovvovo[..., i0:i1, :, j0:j1],
                         t3[:, k0:k1, l0:l1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
                     einsum("mdbiej,mlkaec->ijklabcd", W_ovvovo[..., i0:i1, :, j0:j1],
@@ -478,7 +468,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("mbclek,mjidea->ijklabcd", W_ovvovo[..., l0:l1, :, k0:k1],
                         t3[:, j0:j1, i0:i1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
 
-                    # R4: P12 (o6v4 * 12)
                     einsum("amnijk,mnlbcd->ijklabcd", W_vooooo[..., i0:i1, j0:j1, k0:k1],
                         t3[:, :, l0:l1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
                     einsum("amnijl,mnkbdc->ijklabcd", W_vooooo[..., i0:i1, j0:j1, l0:l1],
@@ -504,7 +493,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("dmnljk,mnibca->ijklabcd", W_vooooo[..., l0:l1, j0:j1, k0:k1],
                         t3[:, :, i0:i1], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
-                    # R4: P13 (o5v4 * 12)
                     einsum("mlcd,abmijk->ijklabcd", t2[:, l0:l1], W_vvoooo[..., i0:i1, j0:j1, k0:k1],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
                     einsum("mkdc,abmijl->ijklabcd", t2[:, k0:k1], W_vvoooo[..., i0:i1, j0:j1, l0:l1],
@@ -530,7 +518,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("miba,cdmklj->ijklabcd", t2[:, i0:i1], W_vvoooo[..., k0:k1, l0:l1, j0:j1],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
 
-                    # R4: P14 (o4v5 * 12)
                     einsum("iled,abcejk->ijklabcd", t2[i0:i1, l0:l1], W_vvvvoo[..., j0:j1, k0:k1],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
                     einsum("ikec,abdejl->ijklabcd", t2[i0:i1, k0:k1], W_vvvvoo[..., j0:j1, l0:l1],
@@ -556,7 +543,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("liea,dbcejk->ijklabcd", t2[l0:l1, i0:i1], W_vvvvoo[..., j0:j1, k0:k1],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
-                    # R4: P2 (o4v5 * 4)
                     _unpack_t4_(mycc, t4, t4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
                     einsum("ae,ijklebcd->ijklabcd", F_vv, t4_tmp[:bi, :bj, :bk, :bl],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
@@ -570,7 +556,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     einsum("de,lijkeabc->ijklabcd", F_vv, t4_tmp[:bl, :bi, :bj, :bk],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
-                    # R4: P8 (o4v6 * 6)
                     _unpack_t4_(mycc, t4, t4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
                     einsum("abef,ijklefcd->ijklabcd", W_vvvv, t4_tmp[:bi, :bj, :bk, :bl],
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
@@ -615,7 +600,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                     for m0, m1 in lib.prange(0, nocc, blksize):
                         bm = m1 - m0
 
-                        # R4: P3 (o5v4 * 4) & P4 (o5v5 * 4)
                         _unpack_t4_(mycc, t4, t4_tmp, m0, m1, j0, j1, k0, k1, l0, l1)
                         einsum("mi,mjklabcd->ijklabcd", F_oo[m0:m1, i0:i1], t4_tmp[:bm, :bj, :bk, :bl],
                             out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
@@ -641,7 +625,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                         einsum("mdel,mijkeabc->ijklabcd", W_ovvo[m0:m1, :, :, l0:l1],
                             t4_tmp[:bm, :bi, :bj, :bk], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=0.5, beta=1.0)
 
-                        # R4: P5 (o5v5 * 12) & P6 (o5v5 * 12)
                         _unpack_t4_(mycc, t4, t4_tmp, m0, m1, j0, j1, k0, k1, l0, l1)
                         einsum("maie,mjklbecd->ijklabcd", W_ovov[m0:m1, :, i0:i1, :],
                             t4_tmp[:bm, :bj, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-0.5, beta=1.0)
@@ -728,7 +711,6 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                         for n0, n1 in lib.prange(0, nocc, blksize):
                             bn = n1 - n0
 
-                            # R4: P7 (o6v4 * 6)
                             _unpack_t4_(mycc, t4, t4_tmp, m0, m1, n0, n1, k0, k1, l0, l1)
                             einsum("mnij,mnklabcd->ijklabcd", W_oooo[m0:m1, n0:n1, i0:i1, j0:j1],
                                 t4_tmp[:bm, :bn, :bk, :bl], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
@@ -806,7 +788,7 @@ def update_amps_rccsdtq_tri_(mycc, tamps, eris):
     r1r2_add_t3_(mycc, imds, r1, r2, t3)
     r2_add_t4_tri_(mycc, imds, r2, t4)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
-    # symmetrize R2
+    # symmetrization
     r2 += r2.transpose(1, 0, 3, 2)
     time1 = log.timer_debug1('t1t2: symmetrize r2', *time1)
     # divide by eijkabc
@@ -825,7 +807,6 @@ def update_amps_rccsdtq_tri_(mycc, tamps, eris):
     intermediates_t3_add_t3(mycc, imds, t3)
     time1 = log.timer_debug1('t3: update intermediates', *time0)
     r3 = compute_r3(mycc, imds, t2, t3)
-
     r3_add_t4_tri_(mycc, imds, r3, t4)
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrization
@@ -851,7 +832,7 @@ def update_amps_rccsdtq_tri_(mycc, tamps, eris):
     r4 = compute_r4_tri(mycc, imds, t2, t3, t4)
     imds = None
     time1 = log.timer_debug1('t4: compute r4', *time1)
-    # symmetrize r4
+    # symmetrization
     symmetrize_tamps_tri_(r4, nocc)
     t4_spin_summation_inplace_(r4, nocc4, nvir, "P4_full", -1.0 / 24.0, 1.0)
     purify_tamps_tri_(r4, nocc)

@@ -415,13 +415,13 @@ def init_amps_rhf(mycc, eris=None):
     cc_order = mycc.cc_order
     tamps = [t1, t2]
     for order in range(2, cc_order - 1):
-        tamp = np.zeros((nocc,) * (order + 1) + (nvir,) * (order + 1), dtype=t1.dtype)
-        tamps.append(tamp)
+        t = np.zeros((nocc,) * (order + 1) + (nvir,) * (order + 1), dtype=t1.dtype)
+        tamps.append(t)
     if mycc.do_tri_max_t:
-        tamp = np.zeros((nx(nocc, cc_order),) + (nvir,) * cc_order, dtype=t1.dtype)
+        t = np.zeros((nx(nocc, cc_order),) + (nvir,) * cc_order, dtype=t1.dtype)
     else:
-        tamp = np.zeros((nocc,) * cc_order + (nvir,) * cc_order, dtype=t1.dtype)
-    tamps.append(tamp)
+        t = np.zeros((nocc,) * cc_order + (nvir,) * cc_order, dtype=t1.dtype)
+    tamps.append(t)
     logger.timer(mycc, 'init mp2', *time0)
     return e_corr, tamps
 
@@ -467,12 +467,10 @@ def intermediates_t1t2(mycc, imds, t2):
     einsum('lkdc,ljcd->kj', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=F_oo, alpha=-1.0, beta=1.0)
     W_oooo = t1_eris[:nocc, :nocc, :nocc, :nocc].copy()
     einsum('klcd,ijcd->klij', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_oooo, alpha=1.0, beta=1.0)
-    # TODO: Derive an alternative expression for this term
     W_ovvo = - t1_eris[:nocc, nocc:, nocc:, :nocc]
     einsum('klcd,ilad->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=-1.0, beta=1.0)
     einsum('kldc,ilad->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=0.5, beta=1.0)
     einsum('klcd,ilda->kaci', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovvo, alpha=0.5, beta=1.0)
-    # TODO: Derive an alternative expression for this term
     W_ovov = - t1_eris[:nocc, nocc:, :nocc, nocc:]
     einsum('kldc,liad->kaic', t1_eris[:nocc, :nocc, nocc:, nocc:], t2, out=W_ovov, alpha=0.5, beta=1.0)
     imds.F_vv, imds.F_oo, imds.W_oooo, imds.W_ovvo, imds.W_ovov = F_vv, F_oo, W_oooo, W_ovvo, W_ovov
@@ -490,12 +488,12 @@ def compute_r1r2(mycc, imds, t2):
     F_oo, F_vv, W_oooo, W_ovvo, W_ovov = imds.F_oo, imds.F_vv, imds.W_oooo, imds.W_ovvo, imds.W_ovov
 
     c_t2 = 2.0 * t2 - t2.transpose(0, 1, 3, 2)
-    # R1
+
     r1 = t1_fock[nocc:, :nocc].T.copy()
     einsum('kc,ikac->ia', t1_fock[:nocc, nocc:], c_t2, out=r1, alpha=1.0, beta=1.0)
     einsum('akcd,ikcd->ia', t1_eris[nocc:, :nocc, nocc:, nocc:], c_t2, out=r1, alpha=1.0, beta=1.0)
     einsum('klic,klac->ia', t1_eris[:nocc, :nocc, :nocc, nocc:], c_t2, out=r1, alpha=-1.0, beta=1.0)
-    # R2
+
     r2 = 0.5 * t1_eris[nocc:, nocc:, :nocc, :nocc].T
     einsum("bc,ijac->ijab", F_vv, t2, out=r2, alpha=1.0, beta=1.0)
     einsum("kj,ikab->ijab", F_oo, t2, out=r2, alpha=-1.0, beta=1.0)
@@ -517,7 +515,6 @@ def r1r2_add_t3_tri_(mycc, imds, r1, r2, t3):
     blksize = mycc.blksize
 
     t1_fock, t1_eris = imds.t1_fock, imds.t1_eris
-    # r1
     t3_tmp = np.empty((blksize,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     for k0, k1 in lib.prange(0, nocc, blksize):
         bk = k1 - k0
@@ -530,7 +527,7 @@ def r1r2_add_t3_tri_(mycc, imds, r1, r2, t3):
                 einsum('jkbc,ijkabc->ia', t1_eris[j0:j1, k0:k1, nocc:, nocc:],
                     t3_tmp[:bi, :bj, :bk], out=r1[i0:i1, :], alpha=0.5, beta=1.0)
     t3_tmp = None
-    # r2
+
     t3_tmp = np.empty((blksize,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     for k0, k1 in lib.prange(0, nocc, blksize):
         bk = k1 - k0
@@ -651,7 +648,7 @@ def compute_r3_tri(mycc, imds, t2, t3):
             bj = j1 - j0
             for i0, i1 in lib.prange(0, j1, blksize):
                 bi = i1 - i0
-                # R3: P0
+
                 einsum('abdj,ikdc->ijkabc', W_vvvo[..., j0:j1], t2[i0:i1, k0:k1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=0.0)
                 einsum('acdk,ijdb->ijkabc', W_vvvo[..., k0:k1], t2[i0:i1, j0:j1],
@@ -664,7 +661,7 @@ def compute_r3_tri(mycc, imds, t2, t3):
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
                 einsum('cbdj,kida->ijkabc', W_vvvo[..., j0:j1], t2[k0:k1, i0:i1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
-                # R3: P1
+
                 einsum('alij,lkbc->ijkabc', W_vooo[:, :, i0:i1, j0:j1], t2[:, k0:k1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 einsum('alik,ljcb->ijkabc', W_vooo[:, :, i0:i1, k0:k1], t2[:, j0:j1],
@@ -677,7 +674,7 @@ def compute_r3_tri(mycc, imds, t2, t3):
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 einsum('clkj,liba->ijkabc', W_vooo[:, :, k0:k1, j0:j1], t2[:, i0:i1],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                # R3: P2
+
                 _unpack_t3_(mycc, t3, t3_tmp, i0, i1, j0, j1, k0, k1)
                 einsum('ad,ijkdbc->ijkabc', F_vv, t3_tmp[:bi, :bj, :bk], out=r3_tmp[:bi, :bj, :bk], alpha=1.0, beta=1.0)
                 _unpack_t3_(mycc, t3, t3_tmp, j0, j1, i0, i1, k0, k1)
@@ -692,7 +689,6 @@ def compute_r3_tri(mycc, imds, t2, t3):
     F_vv, W_vooo, W_vvvo = None, None, None
     time1 = log.timer_debug1('t3: W_vvvo * t2, W_vooo * t2, F_vv * t3', *time1)
 
-    # R3: P3 and P4
     t3_tmp = np.empty((nocc,) + (blksize_oovv,) * 2 + (nvir,) * 3, dtype=t3.dtype)
     r3_tmp = np.empty((blksize_oovv,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     time2 = logger.process_clock(), logger.perf_counter()
@@ -702,21 +698,21 @@ def compute_r3_tri(mycc, imds, t2, t3):
             bj = j1 - j0
             for i0, i1 in lib.prange(0, j1, blksize_oovv):
                 bi = i1 - i0
-                # original
+
                 _unpack_t3_(mycc, t3, t3_tmp, 0, nocc, j0, j1, k0, k1, nocc, blksize_oovv, blksize_oovv)
                 einsum('li,ljkabc->ijkabc', F_oo[:, i0:i1], t3_tmp[:, :bj, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=0.0)
                 t3_spin_summation_inplace_(t3_tmp, nocc * blksize_oovv**2, nvir, "P3_201", 1.0, 0.0)
                 einsum('ladi,ljkdbc->ijkabc', W_ovvo[..., i0:i1], t3_tmp[:, :bj, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=0.5, beta=1.0)
-                # ai <-> bj
+
                 _unpack_t3_(mycc, t3, t3_tmp, 0, nocc, i0, i1, k0, k1, nocc, blksize_oovv, blksize_oovv)
                 einsum('lj,likbac->ijkabc', F_oo[:, j0:j1], t3_tmp[:, :bi, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 t3_spin_summation_inplace_(t3_tmp, nocc * blksize_oovv**2, nvir, "P3_201", 1.0, 0.0)
                 einsum('lbdj,likdac->ijkabc', W_ovvo[..., j0:j1], t3_tmp[:, :bi, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=0.5, beta=1.0)
-                # ai <-> ck
+
                 _unpack_t3_(mycc, t3, t3_tmp, 0, nocc, j0, j1, i0, i1, nocc, blksize_oovv, blksize_oovv)
                 einsum('lk,ljicba->ijkabc', F_oo[:, k0:k1], t3_tmp[:, :bj, :bi],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
@@ -732,7 +728,6 @@ def compute_r3_tri(mycc, imds, t2, t3):
     F_oo, W_ovvo = None, None
     time1 = log.timer_debug1('t3: F_oo * t3, W_ovvo * t3', *time1)
 
-    # R3: P5 & P6
     t3_tmp = np.empty((blksize_oovv, nocc, blksize_oovv,) + (nvir,) * 3, dtype=t3.dtype)
     r3_tmp = np.empty((blksize_oovv,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     time2 = logger.process_clock(), logger.perf_counter()
@@ -742,36 +737,33 @@ def compute_r3_tri(mycc, imds, t2, t3):
             bj = j1 - j0
             for i0, i1 in lib.prange(0, j1, blksize_oovv):
                 bi = i1 - i0
-                #
+
                 _unpack_t3_(mycc, t3, t3_tmp, j0, j1, 0, nocc, k0, k1, blksize_oovv, nocc, blksize_oovv)
                 einsum('lbid,jlkdac->ijkabc', W_ovov[:, :, i0:i1, :], t3_tmp[:bj, :, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=0.0)
                 _unpack_t3_(mycc, t3, t3_tmp, k0, k1, 0, nocc, j0, j1, blksize_oovv, nocc, blksize_oovv)
                 einsum('lcid,kljdab->ijkabc', W_ovov[:, :, i0:i1, :], t3_tmp[:bk, :, :bj],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                # laid,jlkdbc + laid,kljdcb
                 _unpack_t3_pair_(mycc, t3, t3_tmp, j0, j1, 0, nocc, k0, k1)
                 einsum('laid,jlkdbc->ijkabc', W_ovov[:, :, i0:i1, :], t3_tmp[:bj, :, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-0.5, beta=1.0)
-                #
+
                 _unpack_t3_(mycc, t3, t3_tmp, i0, i1, 0, nocc, k0, k1, blksize_oovv, nocc, blksize_oovv)
                 einsum('lajd,ilkdbc->ijkabc', W_ovov[:, :, j0:j1, :], t3_tmp[:bi, :, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 _unpack_t3_(mycc, t3, t3_tmp, k0, k1, 0, nocc, i0, i1, blksize_oovv, nocc, blksize_oovv)
                 einsum('lcjd,klidba->ijkabc', W_ovov[:, :, j0:j1, :], t3_tmp[:bk, :, :bi],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                # lbjd,ilkdac + lbjd,klidca
                 _unpack_t3_pair_(mycc, t3, t3_tmp, i0, i1, 0, nocc, k0, k1)
                 einsum('lbjd,ilkdac->ijkabc', W_ovov[:, :, j0:j1, :], t3_tmp[:bi, :, :bk],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-0.5, beta=1.0)
-                #
+
                 _unpack_t3_(mycc, t3, t3_tmp, i0, i1, 0, nocc, j0, j1, blksize_oovv, nocc, blksize_oovv)
                 einsum('lakd,iljdcb->ijkabc', W_ovov[:, :, k0:k1, :], t3_tmp[:bi, :, :bj],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
                 _unpack_t3_(mycc, t3, t3_tmp, j0, j1, 0, nocc, i0, i1, blksize_oovv, nocc, blksize_oovv)
                 einsum('lbkd,jlidca->ijkabc', W_ovov[:, :, k0:k1, :], t3_tmp[:bj, :, :bi],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-1.0, beta=1.0)
-                # lckd,iljdab + lckd,jlidba
                 _unpack_t3_pair_(mycc, t3, t3_tmp, i0, i1, 0, nocc, j0, j1)
                 einsum('lckd,iljdab->ijkabc', W_ovov[:, :, k0:k1, :], t3_tmp[:bi, :, :bj],
                     out=r3_tmp[:bi, :bj, :bk], alpha=-0.5, beta=1.0)
@@ -784,7 +776,6 @@ def compute_r3_tri(mycc, imds, t2, t3):
     W_ovov = None
     time1 = log.timer_debug1('t3: W_ovov * t3', *time1)
 
-    # R3: P7
     t3_tmp = np.empty((blksize_oooo,) * 2 + (nocc,) + (nvir,) * 3, dtype=t3.dtype)
     r3_tmp = np.empty((blksize_oooo,) * 3 + (nvir,) * 3, dtype=t3.dtype)
     time2 = logger.process_clock(), logger.perf_counter()
@@ -813,20 +804,16 @@ def compute_r3_tri(mycc, imds, t2, t3):
     W_oooo = None
     time1 = log.timer_debug1('t3: W_oooo * t3', *time1)
 
-    # R3: P8
     t3_tmp_s = np.empty((nvir, nvir, nvir), dtype=t3.dtype)
     r3_tmp_s = np.empty((nvir, nvir, nvir), dtype=t3.dtype)
     time2 = logger.process_clock(), logger.perf_counter()
     for k0 in range(nocc):
         for j0 in range(k0 + 1):
             for i0 in range(j0 + 1):
-                # ijk & jik
                 _unpack_t3_s_pair_(mycc, t3, t3_tmp_s, i0, j0, k0)
                 einsum('abde,dec->abc', W_vvvv, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=0.0)
-                # ikj and kij
                 _unpack_t3_s_pair_(mycc, t3, t3_tmp_s, i0, k0, j0)
                 einsum('acde,deb->abc', W_vvvv, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=1.0)
-                # jki and kji
                 _unpack_t3_s_pair_(mycc, t3, t3_tmp_s, j0, k0, i0)
                 einsum('bcde,dea->abc', W_vvvv, t3_tmp_s, out=r3_tmp_s, alpha=0.5, beta=1.0)
                 _accumulate_t3_s_(mycc, r3, r3_tmp_s, i0, j0, k0, alpha=1.0, beta=1.0)
@@ -878,10 +865,9 @@ def update_amps_rccsdt_tri_(mycc, tamps, eris):
     intermediates_t1t2(mycc, imds, t2)
     time1 = log.timer_debug1('t1t2: update intermediates', *time1)
     r1, r2 = compute_r1r2(mycc, imds, t2)
-    # imds.W_ovvo, imds.W_ovov = None, None
     r1r2_add_t3_tri_(mycc, imds, r1, r2, t3)
     time1 = log.timer_debug1('t1t2: compute r1 & r2', *time1)
-    # symmetrize r2
+    # symmetrization
     r2 += r2.transpose(1, 0, 3, 2)
     time1 = log.timer_debug1('t1t2: symmetrize r2', *time1)
     # divide by eijkabc
@@ -901,10 +887,9 @@ def update_amps_rccsdt_tri_(mycc, tamps, eris):
     imds.t1_fock, imds.t1_eris = None, None
     time1 = log.timer_debug1('t3: update intermediates', *time0)
     r3 = compute_r3_tri(mycc, imds, t2, t3)
-    # F_oo, F_vv, W_oooo, W_vooo, W_ovvo, W_ovov, W_vvvo, W_vvvv = (None,) * 8
     imds = None
     time1 = log.timer_debug1('t3: compute r3', *time1)
-    # symmetrize r3
+    # symmetrization
     symmetrize_tamps_tri_(r3, nocc)
     t3_spin_summation_inplace_(r3, r3.shape[0], nvir, "P3_full", -1.0 / 6.0, 1.0)
     purify_tamps_tri_(r3, nocc)
@@ -1033,7 +1018,7 @@ def kernel(mycc, eris=None, tamps=None, tol=1e-8, tolnormt=1e-6, max_cycle=50, v
         tamps = mycc.init_amps(eris)[1]
     else:
         if len(tamps) < mycc.cc_order:
-            tamps = [*tamps, *mycc.init_amps(eris)[1][len(tamps) : ]]
+            tamps = list(tamps) + list(mycc.init_amps(eris)[1][len(tamps):])
 
     name = mycc.__class__.__name__
     cput1 = cput0 = (logger.process_clock(), logger.perf_counter())
