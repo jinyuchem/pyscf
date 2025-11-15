@@ -576,13 +576,24 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                         out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
                     _accumulate_t4_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1)
-        time2 = log.timer_debug1('t4: iter: P0, P1, P9 - P14, P2, P8 [%3d, %3d]:' % (l0, l1), *time2)
+        time2 = log.timer_debug1('t4: iter: W_vvoooo * t2, W_vvvvoo * t2,\n'
+            '                           W_vvvo * t3, W_vooo * t3, W_ovvvoo * t3, W_ovvovo * t3, W_vooooo * t3,\n'
+            '                           F_vv * t4, W_vvvv * t4 [%3d, %3d]:' % (l0, l1), *time2)
     t4_tmp = None
     r4_tmp = None
     c_t3 = None
-    F_vv, W_vvvo, W_vooo, W_vvvv, W_ovvvoo, W_ovvovo, W_vooooo, W_vvoooo, W_vvvvoo = (None,) * 9
+    F_vv = imds.F_vv = None
+    W_vvvo = imds.W_vvvo = None
+    W_vooo = imds.W_vooo = None
+    W_vvvv = imds.W_vvvv = None
+    W_ovvvoo = imds.W_ovvvoo = None
+    W_ovvovo = imds.W_ovvovo = None
+    W_vooooo = imds.W_vooooo = None
+    W_vvoooo = imds.W_vvoooo = None
+    W_vvvvoo = imds.W_vvvvoo = None
 
-    time1 = log.timer_debug1('t4: P0, P1, P9 - P14, P2, P8', *time1)
+    time1 = log.timer_debug1('t4: W_vvoooo * t2, W_vvvvoo * t2, W_vvvo * t3, W_vooo * t3, W_ovvvoo * t3,\n'
+                        '                     W_ovvovo * t3, W_vooooo * t3, F_vv * t4, W_vvvv * t4', *time1)
 
     time2 = logger.process_clock(), logger.perf_counter()
     t4_tmp = np.empty((blksize,) * 4 + (nvir,) * 4, dtype=t4.dtype)
@@ -687,11 +698,13 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                             t4_tmp[:bm, :bk, :bi, :bj], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=-1.0, beta=1.0)
 
                     _accumulate_t4_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1, beta=1.0)
-        time2 = log.timer_debug1('t4: iter: P3, P4, P5, P6 [%3d, %3d]:'%(l0, l1), *time2)
+        time2 = log.timer_debug1('t4: iter: F_oo * t4, W_ovvo * t4, W_ovov * t4 [%3d, %3d]:'%(l0, l1), *time2)
     t4_tmp = None
     r4_tmp = None
-    F_oo, W_ovvo, W_ovov = None, None, None
-    time1 = log.timer_debug1('t4: P3, P4, P5, P6', *time1)
+    F_oo = imds.F_oo = None
+    W_ovvo = imds.W_ovvo = None
+    W_ovov = imds.V_ovov = None
+    time1 = log.timer_debug1('t4: F_oo * t4, W_ovvo * t4, W_ovov * t4', *time1)
 
     time2 = logger.process_clock(), logger.perf_counter()
     t4_tmp = np.empty((blksize,) * 4 + (nvir,) * 4, dtype=t4.dtype)
@@ -731,11 +744,11 @@ def compute_r4_tri(mycc, imds, t2, t3, t4):
                                 t4_tmp[:bm, :bn, :bi, :bj], out=r4_tmp[:bi, :bj, :bk, :bl], alpha=1.0, beta=1.0)
 
                     _accumulate_t4_(mycc, r4, r4_tmp, i0, i1, j0, j1, k0, k1, l0, l1, beta=1.0)
-        time2 = log.timer_debug1('t4: iter: P7 [%3d, %3d]:'%(l0, l1), *time2)
+        time2 = log.timer_debug1('t4: iter: W_oooo * t4 [%3d, %3d]:'%(l0, l1), *time2)
     t4_tmp = None
     r4_tmp = None
-    W_oooo = None
-    time1 = log.timer_debug1('t4: P7', *time1)
+    W_oooo = imds.W_oooo = None
+    time1 = log.timer_debug1('t4: W_oooo * t4', *time1)
     return r4
 
 def r4_tri_divide_e_(mycc, r4, mo_energy):

@@ -179,7 +179,10 @@ def compute_r3_uhf(mycc, imds, t2, t3):
     einsum("aldk,ijdblc->ijabkc", W_vOvO, t3aab, out=r3aab, alpha=-0.5, beta=1.0)
     einsum("clkd,ijlabd->ijabkc", W_VoOv, t3aaa, out=r3aab, alpha=0.25, beta=1.0)
     einsum("clkd,ijabld->ijabkc", W_VOOV, t3aab, out=r3aab, alpha=0.25, beta=1.0)
-    W_vvvo, W_ovoo, W_vvvv, W_oooo = (None,) * 4
+    W_vvvo = imds.W_vvvo = None
+    W_ovoo = imds.W_ovoo = None
+    W_vvvv = imds.W_vvvv = None
+    W_oooo = imds.W_oooo = None
     time1 = log.timer_debug1('t3: r3aab', *time1)
 
     r3bba = np.empty_like(t3bba)
@@ -203,9 +206,26 @@ def compute_r3_uhf(mycc, imds, t2, t3):
     einsum("lakd,ijdblc->ijabkc", W_oVoV, t3bba, out=r3bba, alpha=-0.5, beta=1.0)
     einsum("clkd,ijlabd->ijabkc", W_vOoV, t3bbb, out=r3bba, alpha=0.25, beta=1.0)
     einsum("clkd,ijabld->ijabkc", W_voov, t3bba, out=r3bba, alpha=0.25, beta=1.0)
-    F_oo, F_OO, F_vv, F_VV = (None,) * 4
-    (W_vVoV, W_vVvO, W_voov, W_vOoV, W_oVoO, W_vOoO, W_vVvV, W_oOoO, W_oVoV, W_vOvO, W_VoOv, W_VOOV,
-        W_VVVV, W_VVVO, W_OVOO, W_OOOO) = (None,) * 16
+    F_oo = imds.F_oo = None
+    F_OO = imds.F_OO = None
+    F_vv = imds.F_vv = None
+    F_VV = imds.F_VV = None
+    W_vVoV = imds.W_vVoV = None
+    W_vVvO = imds.W_vVvO = None
+    W_voov = imds.W_voov = None
+    W_vOoV = imds.W_vOoV = None
+    W_oVoO = imds.W_oVoO = None
+    W_vOoO = imds.W_vOoO = None
+    W_vVvV = imds.W_vVvV = None
+    W_oOoO = imds.W_oOoO = None
+    W_oVoV = imds.W_oVoV = None
+    W_vOvO = imds.W_vOvO = None
+    W_VoOv = imds.W_VoOv = None
+    W_VOOV = imds.W_VOOV = None
+    W_VVVV = imds.W_VVVV = None
+    W_VVVO = imds.W_VVVO = None
+    W_OVOO = imds.W_OVOO = None
+    W_OOOO = imds.W_OOOO = None
     time1 = log.timer_debug1('t3: r3bba', *time1)
     return [r3aaa, r3aab, r3bba, r3bbb]
 

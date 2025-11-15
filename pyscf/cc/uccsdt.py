@@ -640,7 +640,8 @@ def compute_r1r2_uhf(mycc, imds, t2):
     einsum("klij,klab->ijab", W_oooo, t2aa, out=r2aa, alpha=0.125, beta=1.0)
     einsum("kbcj,ikac->ijab", W_ovvo, t2aa, out=r2aa, alpha=1.0, beta=1.0)
     einsum("kbcj,iakc->ijab", W_OvVo, t2ab, out=r2aa, alpha=1.0, beta=1.0)
-    W_ovvo, W_OvVo = None, None
+    W_ovvo = imds.W_ovvo = None
+    W_OvVo = imds.W_OvVo = None
 
     r2ab = t1_erisab[nocca:, noccb:, :nocca, :noccb].transpose(2, 3, 0, 1).copy()
     r2ab = r2ab.transpose(0, 2, 1, 3)
@@ -656,7 +657,12 @@ def compute_r1r2_uhf(mycc, imds, t2):
     einsum("bkcj,ikac->iajb", W_VovO, t2aa, out=r2ab, alpha=1.0, beta=1.0)
     einsum("bkcj,iakc->iajb", W_VOVO, t2ab, out=r2ab, alpha=1.0, beta=1.0)
     einsum("bkci,kajc->iajb", W_VoVo, t2ab, out=r2ab, alpha=1.0, beta=1.0)
-    W_vovo, W_vOvO, W_vOVo, W_VovO, W_VoVo, W_VOVO = (None,) * 6
+    W_vovo = imds.W_vovo = None
+    W_vOvO = imds.W_vOvO = None
+    W_vOVo = imds.W_vOVo = None
+    W_VovO = imds.W_VovO = None
+    W_VoVo = imds.W_VoVo = None
+    W_VOVO = imds.W_VOVO = None
 
     r2bb = 0.25 * t1_erisbb[noccb:, noccb:, :noccb, :noccb].T
     einsum("bc,ijac->ijab", F_VV, t2bb, out=r2bb, alpha=0.5, beta=1.0)
@@ -665,7 +671,8 @@ def compute_r1r2_uhf(mycc, imds, t2):
     einsum("klij,klab->ijab", W_OOOO, t2bb, out=r2bb, alpha=0.125, beta=1.0)
     einsum("kbcj,ikac->ijab", W_OVVO, t2bb, out=r2bb, alpha=1.0, beta=1.0)
     einsum("kbcj,kcia->ijab", W_oVvO, t2ab, out=r2bb, alpha=1.0, beta=1.0)
-    W_oVvO, W_OVVO = None, None
+    W_oVvO = imds.W_oVvO = None
+    W_OVVO = imds.W_OVVO = None
     return [r1a, r1b], [r2aa, r2ab, r2bb]
 
 def r1r2_add_t3_tri_uhf_(mycc, imds, r1, r2, t3):
@@ -1689,7 +1696,10 @@ def compute_r3aab_tri_uhf(mycc, imds, t2, t3):
     t3_tmp = None
     t3_tmp_2 = None
     t3_tmp_3 = None
-    W_vvvo, W_ovoo, W_vvvv, W_oooo = (None,) * 4
+    W_vvvo = imds.W_vvvo = None
+    W_ovoo = imds.W_ovoo = None
+    W_vvvv = imds.W_vvvv = None
+    W_oooo = imds.W_oooo = None
 
     time1 = log.timer_debug1('t3: r3aab', *time1)
     return r3aab
@@ -1881,9 +1891,26 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
     t3_tmp = None
     t3_tmp_2 = None
     t3_tmp_3 = None
-    F_oo, F_OO, F_vv, F_VV = (None,) * 4
-    (W_vVoV, W_vVvO, W_voov, W_vOoV, W_oVoO, W_vOoO, W_vVvV, W_oOoO, W_oVoV, W_vOvO, W_VoOv, W_VOOV,
-        W_VVVV, W_VVVO, W_OVOO, W_OOOO) = (None,) * 16
+    F_oo = imds.F_oo = None
+    F_OO = imds.F_OO = None
+    F_vv = imds.F_vv = None
+    F_VV = imds.F_VV = None
+    W_vVoV = imds.W_vVoV = None
+    W_vVvO = imds.W_vVvO = None
+    W_voov = imds.W_voov = None
+    W_vOoV = imds.W_vOoV = None
+    W_oVoO = imds.W_oVoO = None
+    W_vOoO = imds.W_vOoO = None
+    W_vVvV = imds.W_vVvV = None
+    W_oOoO = imds.W_oOoO = None
+    W_oVoV = imds.W_oVoV = None
+    W_vOvO = imds.W_vOvO = None
+    W_VoOv = imds.W_VoOv = None
+    W_VOOV = imds.W_VOOV = None
+    W_VVVV = imds.W_VVVV = None
+    W_VVVO = imds.W_VVVO = None
+    W_OVOO = imds.W_OVOO = None
+    W_OOOO = imds.W_OOOO = None
 
     time1 = log.timer_debug1('t3: r3bba', *time1)
     return r3bba
@@ -1891,9 +1918,9 @@ def compute_r3bba_tri_uhf(mycc, imds, t2, t3):
 def compute_r3_tri_uhf(mycc, imds, t2, t3):
     '''Compute r3 with triangular-stored T3 amplitudes; r3 is returned in triangular form as well.'''
     r3aaa = compute_r3aaa_tri_uhf(mycc, imds, t2, t3)
+    r3bbb = compute_r3bbb_tri_uhf(mycc, imds, t2, t3)
     r3aab = compute_r3aab_tri_uhf(mycc, imds, t2, t3)
     r3bba = compute_r3bba_tri_uhf(mycc, imds, t2, t3)
-    r3bbb = compute_r3bbb_tri_uhf(mycc, imds, t2, t3)
     r3 = [r3aaa, r3aab, r3bba, r3bbb]
     return r3
 

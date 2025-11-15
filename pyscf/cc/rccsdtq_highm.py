@@ -188,63 +188,63 @@ def compute_r4(mycc, imds, t2, t3, t4):
 
     r4 = np.empty_like(t4)
     einsum('abej,iklecd->ijklabcd', W_vvvo, t3, out=r4, alpha=0.5, beta=0.0)
-    W_vvvo = None
+    W_vvvo = imds.W_vvvo = None
     time1 = log.timer_debug1('t4: W_vvvo * t3', *time1)
 
     einsum('amij,mklbcd->ijklabcd', W_vooo, t3, out=r4, alpha=-0.5, beta=1.0)
-    W_vooo = None
+    W_vooo = imds.W_vooo = None
     time1 = log.timer_debug1('t4: W_vooo * t3', *time1)
 
     einsum('ae,ijklebcd->ijklabcd', F_vv, t4, out=r4, alpha=1.0 / 6.0, beta=1.0)
-    F_vv = None
+    F_vv = imds.F_vv = None
     time1 = log.timer_debug1('t4: F_vv * t4', *time1)
 
     einsum('mi,mjklabcd->ijklabcd', F_oo, t4, out=r4, alpha=-1.0 / 6.0, beta=1.0)
-    F_oo = None
+    F_oo = imds.F_oo = None
     time1 = log.timer_debug1('t4: F_oo * t4', *time1)
 
     c_t4 = np.empty_like(t4)
     t4_spin_summation(t4, c_t4, nocc**4, nvir, "P4_201", 1.0, 0.0)
     einsum('maei,mjklebcd->ijklabcd', W_ovvo, c_t4, out=r4, alpha=1.0 / 12.0, beta=1.0)
     c_t4 = None
-    W_ovvo = None
+    W_ovvo = imds.W_ovvo = None
     time1 = log.timer_debug1('t4: W_ovvo * c_t4', *time1)
 
     einsum('maie,jmklebcd->ijklabcd', W_ovov, t4, out=r4, alpha=-0.25, beta=1.0)
     einsum('mbie,jmkleacd->ijklabcd', W_ovov, t4, out=r4, alpha=-0.5, beta=1.0)
-    W_ovov = None
+    W_ovov = imds.W_ovov = None
     time1 = log.timer_debug1('t4: W_ovov * t4', *time1)
 
     einsum('mnij,mnklabcd->ijklabcd', W_oooo, t4, out=r4, alpha=0.25, beta=1.0)
-    W_oooo = None
+    W_oooo = imds.W_oooo = None
     time1 = log.timer_debug1('t4: W_oooo * t4', *time1)
 
     einsum('abef,ijklefcd->ijklabcd', W_vvvv, t4, out=r4, alpha=0.25, beta=1.0)
-    W_vvvv = None
+    W_vvvv = imds.W_vvvv = None
     time1 = log.timer_debug1('t4: W_vvvv * t4', *time1)
 
     c_t3 = np.empty_like(t3)
     t3_spin_summation(t3, c_t3, nocc**3, nvir, "P3_201", 1.0, 0.0)
     einsum('mabeij,mklecd->ijklabcd', W_ovvvoo, c_t3, out=r4, alpha=0.125, beta=1.0)
-    W_ovvvoo = None
+    W_ovvvoo = imds.W_ovvvoo = None
     c_t3 = None
     time1 = log.timer_debug1('t4: W_ovvvoo * c_t3', *time1)
 
     einsum('mabiej,kmlecd->ijklabcd', W_ovvovo, t3, out=r4, alpha=-0.5, beta=1.0)
     einsum('mcbiej,kmlead->ijklabcd', W_ovvovo, t3, out=r4, alpha=-1.0, beta=1.0)
-    W_ovvovo = None
+    W_ovvovo = imds.W_ovvovo = None
     time1 = log.timer_debug1('t4: W_ovvovo * t3', *time1)
 
     einsum('amnijk,mnlbcd->ijklabcd', W_vooooo, t3, out=r4, alpha=0.5, beta=1.0)
-    W_vooooo = None
+    W_vooooo = imds.W_vooooo = None
     time1 = log.timer_debug1('t4: W_vooooo * t3', *time1)
 
     einsum('abmijk,mlcd->ijklabcd', W_vvoooo, t2, out=r4, alpha=-0.5, beta=1.0)
-    W_vvoooo = None
+    W_vvoooo = imds.W_vvoooo = None
     time1 = log.timer_debug1('t4: W_vvoooo * t2', *time1)
 
     einsum('abcejk,iled->ijklabcd', W_vvvvoo, t2, out=r4, alpha=0.5, beta=1.0)
-    W_vvvvoo = None
+    W_vvvvoo = imds.W_vvvvoo = None
     time1 = log.timer_debug1('t4: W_vvvvoo * t2', *time1)
     return r4
 

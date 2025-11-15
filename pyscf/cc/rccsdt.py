@@ -57,7 +57,7 @@ def _einsum(einsum_backend, script, *tensors, out=None, alpha=1.0, beta=0.0):
         raise ValueError(f"Unknown einsum_backend: {einsum_backend}")
 
     def _fix_strides_for_pytblis(arr):
-        '''Fix strides_for pytblis'''
+        '''Fix strides for pytblis'''
         import itertools, numpy as np
         if arr.strides == (0,) * arr.ndim:
             strides = tuple(itertools.accumulate([x if x != 0 else 1 for x in arr.shape],
@@ -503,7 +503,8 @@ def compute_r1r2(mycc, imds, t2):
     einsum("kaci,kjcb->ijab", W_ovvo, t2, out=r2, alpha=-2.0, beta=1.0)
     einsum("kaic,kjcb->ijab", W_ovov, t2, out=r2, alpha=1.0, beta=1.0)
     einsum("kaci,jkcb->ijab", W_ovvo, t2, out=r2, alpha=1.0, beta=1.0)
-    W_ovvo, W_ovov = None, None
+    W_ovvo = imds.W_ovvo = None
+    W_ovov = imds.W_ovov = None
     return r1, r2
 
 def r1r2_add_t3_tri_(mycc, imds, r1, r2, t3):
@@ -617,7 +618,6 @@ def intermediates_t3_add_t3_tri(mycc, imds, t3):
                 einsum('lmde,mjleba->abdj', t1_eris[l0:l1, m0:m1, nocc:, nocc:],
                     t3_tmp[:bm, :bj, :bl], out=W_vvvo[:, :, :, j0:j1], alpha=-1.0, beta=1.0)
     t3_tmp = None
-    imds.fock, imds.t1_eris = None, None
     return imds
 
 def compute_r3_tri(mycc, imds, t2, t3):
@@ -686,7 +686,9 @@ def compute_r3_tri(mycc, imds, t2, t3):
         time2 = log.timer_debug1('t3: iter: W_vvvo, W_vooo, F_vv [%3d, %3d]:'%(k0, k1), *time2)
     t3_tmp = None
     r3_tmp = None
-    F_vv, W_vooo, W_vvvo = None, None, None
+    F_vv = imds.F_vv = None
+    W_vooo = imds.W_vooo = None
+    W_vvvo = imds.W_vvvo = None
     time1 = log.timer_debug1('t3: W_vvvo * t2, W_vooo * t2, F_vv * t3', *time1)
 
     t3_tmp = np.empty((nocc,) + (blksize_oovv,) * 2 + (nvir,) * 3, dtype=t3.dtype)
@@ -725,7 +727,8 @@ def compute_r3_tri(mycc, imds, t2, t3):
         time2 = log.timer_debug1('t3: iter: F_oo, W_ovvo [%3d, %3d]:'%(k0, k1), *time2)
     t3_tmp = None
     r3_tmp = None
-    F_oo, W_ovvo = None, None
+    F_oo = imds.F_oo = None
+    W_ovvo = imds.W_ovvo = None
     time1 = log.timer_debug1('t3: F_oo * t3, W_ovvo * t3', *time1)
 
     t3_tmp = np.empty((blksize_oovv, nocc, blksize_oovv,) + (nvir,) * 3, dtype=t3.dtype)
@@ -773,7 +776,7 @@ def compute_r3_tri(mycc, imds, t2, t3):
         time2 = log.timer_debug1('t3: iter: W_ovov [%3d, %3d]:'%(k0, k1), *time2)
     t3_tmp = None
     r3_tmp = None
-    W_ovov = None
+    W_ovov = imds.W_ovov = None
     time1 = log.timer_debug1('t3: W_ovov * t3', *time1)
 
     t3_tmp = np.empty((blksize_oovv,) * 2 + (nocc,) + (nvir,) * 3, dtype=t3.dtype)
@@ -801,7 +804,7 @@ def compute_r3_tri(mycc, imds, t2, t3):
         time2 = log.timer_debug1('t3: iter: W_oooo [%3d, %3d]:'%(l0, l1), *time2)
     t3_tmp = None
     r3_tmp = None
-    W_oooo = None
+    W_oooo = imds.W_oooo = None
     time1 = log.timer_debug1('t3: W_oooo * t3', *time1)
 
     t3_tmp_s = np.empty((nvir, nvir, nvir), dtype=t3.dtype)
@@ -820,7 +823,7 @@ def compute_r3_tri(mycc, imds, t2, t3):
         time2 = log.timer_debug1('t3: iter: W_vvvv %3d:'%k0, *time2)
     t3_tmp_s = None
     r3_tmp_s = None
-    W_vvvv = None
+    W_vvvv = imds.W_vvvv = None
     time1 = log.timer_debug1('t3: W_vvvv * t3', *time1)
     return r3
 

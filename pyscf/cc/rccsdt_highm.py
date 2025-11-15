@@ -203,6 +203,7 @@ def update_amps_rccsdt_(mycc, tamps, eris):
     imds.t1_fock, imds.t1_eris = None, None
     time1 = log.timer_debug1('t3: update intermediates', *time0)
     r3 = compute_r3(mycc, imds, t2, t3)
+    imds.F_oo, imds.F_vv, imds.W_oooo, imds.W_vooo, imds.W_ovvo, imds.W_ovov, imds.W_vvvo, imds.W_vvvv = (None,) * 8
     imds = None
     time1 = log.timer_debug1('t3: compute r3', *time1)
     # symmetrization
