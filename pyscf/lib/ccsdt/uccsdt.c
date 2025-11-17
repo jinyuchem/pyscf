@@ -23,7 +23,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Signs for 6-fold permutations (matches your Python code)
+// Signs for 6-fold permutations
 const double sign6[6] = {1.0, -1.0, -1.0, 1.0, 1.0, -1.0};
 
 // Signs for 2-fold permutations

@@ -2728,11 +2728,13 @@ class UCCSDT(ccsd.CCSDBase):
             log.info('blksize_o_aab %5d    blksize_v_aab %5d'%(self.blksize_o_aab, self.blksize_v_aab))
 
             if self.blksize_v_aaa > (max(nvira, nvirb) + 1) // 2:
-                logger.warn(self, 'A large `blksize_v_aaa` is being used. If sufficient memory is available for '
-                                    'the Block workspace, consider using `pyscf.cc.uccsdt.UCCSDT` instead.')
+                logger.warn(self, 'A large `blksize_v_aaa` is being used, which may cause large memory consumption\n'
+                            '      for storing contraction intermediates. If memory is sufficient, consider using\n'
+                            '      `pyscf.cc.uccsdt_highm.UCCSDT` instead.')
             if self.blksize_v_aab > (max(nvira, nvirb) + 1) // 2:
-                logger.warn(self, 'A large `blksize_v_aab` is being used. If sufficient memory is available for '
-                                    'the Block workspace, consider using `pyscf.cc.uccsdt.UCCSDT` instead.')
+                logger.warn(self, 'A large `blksize_v_aab` is being used, which may cause large memory consumption\n'
+                            '      for storing contraction intermediates. If memory is sufficient, consider using\n'
+                            '      `pyscf.cc.uccsdt_highm.UCCSDT` instead.')
 
         self.memory_estimate_log()
         self.unique_tamps_map = self.build_unique_tamps_map()

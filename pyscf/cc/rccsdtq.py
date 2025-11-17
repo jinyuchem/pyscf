@@ -1012,8 +1012,9 @@ class RCCSDTQ(rccsdt.RCCSDT):
             self.blksize = min(self.blksize, nocc)
             log.info('blksize %2d' % (self.blksize))
             if self.blksize > (nocc + 1) // 2:
-                logger.warn(self, 'A large `blksize` is being used. If sufficient memory is available for '
-                                    'the Block workspace, consider using `pyscf.cc.rccsdtq.RCCSDTQ` instead.')
+                logger.warn(self, 'A large `blksize` is being used, which may cause large memory consumption\n'
+                            '      for storing contraction intermediates. If memory is sufficient, consider using\n'
+                            '      `pyscf.cc.rccsdtq_highm.RCCSDTQ` instead.')
 
         self.memory_estimate_log()
         self.unique_tamps_map = self.build_unique_tamps_map()
